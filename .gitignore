@@ -1,0 +1,10 @@
+/.venv/
+/.install/
+/build/
+/dist/
+multisim.local.toml
+multisim.client.toml
+*.egg-info/
+__pycache__/
+*.ms14
+*.ms14 (Security copy)

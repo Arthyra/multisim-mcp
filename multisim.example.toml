@@ -1,0 +1,9 @@
+[native]
+command = 'ABSOLUTE_PATH_TO_NATIVE_ENV_PYTHON'
+
+[com]
+command = 'ABSOLUTE_PATH_TO_COM_ENV_PYTHON'
+args = ["-m", "multisim_mcp.server"]
+
+[com.env]
+MULTISIM_MCP_WORKER_PYTHON = 'ABSOLUTE_PATH_TO_32_BIT_COM_WORKER_PYTHON'

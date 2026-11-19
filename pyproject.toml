@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multisim-unified-mcp"
+version = "0.3.0"
+description = "One MCP endpoint for native editing and COM automation in NI Multisim"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = ["mcp==2.3.0", "pydantic>=2,<3"]
+
+[project.scripts]
+multisim-unified-mcp = "multisim_unified_mcp:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+multisim_unified_mcp = ["interactive_logic.js"]
