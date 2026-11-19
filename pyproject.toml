@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools==80.9.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "multisim-unified-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "One MCP endpoint for native editing and COM automation in NI Multisim"
 readme = "README.md"
 requires-python = ">=3.11"

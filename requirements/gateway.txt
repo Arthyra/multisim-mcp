@@ -1,0 +1,3 @@
+# Complete runtime lock for the gateway environment.
+-r common.txt
+cryptography==50.0.2

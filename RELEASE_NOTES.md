@@ -1,6 +1,8 @@
-# v0.3.0 preview
+# v0.4.0 preview
 
 This version exposes one stdio MCP server for real NI Multisim editing and COM analysis. It can search the main library, place native parts, run F5, operate stock digital switches, read red logic indicators, and hand a saved circuit to COM.
+
+The installer locks the runtime dependencies for all three Python environments. The standalone `--doctor` command produces path-free installation diagnostics, and `gateway_status` reports backend availability. A single unavailable backend leaves the healthy backend's tools usable. A handoff checks both backend connections before touching the active native document.
 
 ## Tested configuration
 

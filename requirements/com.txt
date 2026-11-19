@@ -1,0 +1,4 @@
+# Complete runtime lock for the com environment.
+-r common.txt
+cryptography==48.0.1
+multisim-mcp==1.3.1

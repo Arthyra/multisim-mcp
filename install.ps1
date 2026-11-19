@@ -42,21 +42,27 @@ $InstallDir = [IO.Path]::GetFullPath($InstallDir)
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 function Install-Environment {
-    param([string]$Name, [string]$Interpreter, [string[]]$Packages)
+    param([string]$Name, [string]$Interpreter)
     $directory = Join-Path $InstallDir $Name
     Write-Host "Installing $Name"
     & $Interpreter -m venv $directory | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not create the $Name Python environment." }
     $executable = Join-Path $directory 'Scripts\python.exe'
-    & $executable -m pip --disable-pip-version-check --timeout 45 install @Packages | Out-Host
+    $lock = Join-Path $PSScriptRoot "requirements\$Name.txt"
+    & $executable -m pip --disable-pip-version-check --timeout 45 install --no-deps --only-binary=:all: -r $lock | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not install $Name. See the pip error above." }
+    if ($Name -eq 'gateway') {
+        & $executable -m pip --disable-pip-version-check --timeout 45 install --no-deps $PSScriptRoot | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Could not install the gateway package.' }
+    }
+    & $executable -m pip --disable-pip-version-check check | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "The $Name environment has incompatible dependencies." }
     return $executable
 }
 
-$nativeWheel = 'https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.2/multisim_native_mcp-0.5.2-py3-none-any.whl#sha256=cd46dcf614283c4ea84a3fd5dbafff72539aaf868358c48ee086681fd323e531'
-$native = Install-Environment -Name 'native' -Interpreter $Python32 -Packages @('--only-binary=:all:', $nativeWheel)
-$com = Install-Environment -Name 'com' -Interpreter $Python32 -Packages @('--only-binary=:all:', 'multisim-mcp==1.3.1', 'mcp==2.3.0')
-$gatewayPython = Install-Environment -Name 'gateway' -Interpreter $Python64 -Packages @($PSScriptRoot)
+$native = Install-Environment -Name 'native' -Interpreter $Python32
+$com = Install-Environment -Name 'com' -Interpreter $Python32
+$gatewayPython = Install-Environment -Name 'gateway' -Interpreter $Python64
 $gateway = Join-Path (Split-Path -Parent $gatewayPython) 'multisim-unified-mcp.exe'
 
 $config = Join-Path $InstallDir 'multisim.local.toml'

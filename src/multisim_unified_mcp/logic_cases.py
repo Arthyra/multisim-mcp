@@ -3,10 +3,11 @@
 from pathlib import Path
 from typing import Literal
 
-from mcp import ClientSession, types
+from mcp import types
 from pydantic import BaseModel, Field
 
 from .backend_calls import backend_result
+from .backends import Backend
 
 
 class LogicCase(BaseModel):
@@ -35,7 +36,7 @@ VERIFY_LOGIC_TOOL = types.Tool(
 )
 
 
-async def verify_logic_cases(session: ClientSession, arguments: dict) -> dict:
+async def verify_logic_cases(session: Backend, arguments: dict) -> dict:
     request = LogicArguments.model_validate(arguments)
     if request.low_max_v >= request.high_min_v:
         raise ValueError("low_max_v must be less than high_min_v")

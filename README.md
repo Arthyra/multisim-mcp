@@ -1,6 +1,6 @@
 # multisim-mcp
 
-One local MCP endpoint for editing real NI Multisim schematics, controlling F5 simulation, and running COM analysis. This is an independent interoperability project. See the [v0.3.0 release notes](RELEASE_NOTES.md) for a complete example.
+One local MCP endpoint for editing real NI Multisim schematics, controlling F5 simulation, and running COM analysis. This is an independent interoperability project. See the [release notes](RELEASE_NOTES.md) for a complete example.
 
 ## Requirements
 
@@ -18,9 +18,19 @@ Run the installer from this checkout in PowerShell.
 
 The installer uses `python` for the 64-bit environment and `py -3.12-32` to find the 32-bit interpreter. If needed, pass the Python executables explicitly with `-Python64` and `-Python32`. Pass the directory containing `multisim.exe` with `-MultisimPath` for a custom installation. `-InstallDir` selects a different output directory, preferably outside the checkout.
 
-By default the script creates three environments under `.install` and writes two local configuration files. Paste the generated `multisim.client.toml` stanza into a Codex MCP configuration. For another stdio MCP client, use the same executable and arguments in that client's format. The script leaves client settings to the user and preserves an existing `multisim.local.toml`.
+By default the script creates three environments under `.install` and writes two local configuration files. Each environment installs the exact runtime versions listed in [requirements](requirements/) and runs `pip check`. Paste the generated `multisim.client.toml` stanza into a Codex MCP configuration. For another stdio MCP client, use the same executable and arguments in that client's format. The script leaves client settings to the user and preserves an existing `multisim.local.toml`.
 
 After starting the MCP server, call `native_runtime_status` and `com_runtime_status` to check the local runtime. For manually provisioned or existing environments, start with [multisim.example.toml](multisim.example.toml) and supply absolute Python paths. XML decoding is optional and uses the COM backend's [codec setup](https://github.com/yxy050208/multisim-mcp/blob/v1.3.1/mcp_server/README.md#install).
+
+### Installation diagnosis
+
+```powershell
+.\.install\gateway\Scripts\multisim-unified-mcp.exe --config .install\multisim.local.toml --doctor
+```
+
+The command checks Python architecture, required modules, backend startup, the native Multisim build profile, and COM worker compatibility and registration. It prints a JSON report using fixed diagnostic codes and omits local paths. It uses read-only runtime checks and leaves license activation to the Multisim application.
+
+Use `gateway_status` after connecting to the MCP. If a backend cannot start or its connection closes, the other backend keeps serving its tools. The status reports which backend needs attention. Fix its installation or configuration and restart the gateway to load it again.
 
 ## Workflow
 
@@ -35,7 +45,7 @@ The gateway exposes a focused set of tools. It preserves upstream tool schemas a
 
 Call `handoff_to_com` with `{"path":"ABSOLUTE_PATH_TO_ADDER.ms14"}`, substituting the active document's absolute path. The gateway checks that the selected native source is this exact file before stopping F5. It then saves and releases the native session, connects COM, and opens the saved file. The full sequence runs under the gateway's tool-call lock.
 
-Check `ok` and `stage` in the response. A successful result has `stage: "complete"` and includes `saved_path` and `opened_path`. On failure, the response identifies the step and reports whether the native session was released. If the save succeeded and the COM open failed, use the returned `saved_path` to retry the COM open.
+Check `ok` and `stage` in the response. A successful result has `stage: "complete"` and includes `saved_path` and `opened_path`. If either backend cannot be reached, the handoff stops at `check_backends` before touching the native document. On later failures, the receipt reports the step and whether the native session was released. If the save succeeded and the COM open failed, use the returned `saved_path` to retry the COM open.
 
 ### Verify live F5 logic
 
@@ -65,6 +75,8 @@ Each output includes the last sampled voltage, timestamp, expected and observed 
 The native worker excludes headless Multisim processes launched with `/SimServer`. They remain available to the simulator and COM backend. If several schematic editors are open, use `native_attach` with the desired editor's PID and document index. Use `native_list_projects` after attaching to inspect the indexed documents. Index 0 is the first document in that process.
 
 ## Regression test
+
+Run the backend isolation tests with `python -m unittest discover -s tests -p test_backend_isolation.py` from the installed gateway environment. They use local test processes to simulate startup failures and a lost connection.
 
 Install the gateway and configure both backends as above. Close Multisim schematic editor windows so the test can exercise isolated startup. The script uses temporary copies of the projects you supply.
 

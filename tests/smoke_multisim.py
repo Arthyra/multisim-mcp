@@ -109,6 +109,8 @@ async def run(config, adder, cases_dir):
 
         async with stdio_client(gateway) as streams, ClientSession(*streams, read_timeout_seconds=180) as session:
             await session.initialize()
+            backends = await call(session, "gateway_status")
+            assert all(backends[name]["reachable"] for name in ("native", "com")), backends
             runtime = await call(session, "native_runtime_status")
             if runtime["processes"]:
                 raise RuntimeError("Close schematic editor windows before the isolated startup test")

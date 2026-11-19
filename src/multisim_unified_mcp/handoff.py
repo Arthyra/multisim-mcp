@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from mcp import ClientSession, types
+from mcp import types
 from pydantic import BaseModel, Field
 
 from .backend_calls import backend_result
+from .backends import Backend
 
 
 class HandoffArguments(BaseModel):
@@ -23,13 +24,18 @@ HANDOFF_TOOL = types.Tool(
 )
 
 
-async def handoff_to_com(native: ClientSession, com: ClientSession, arguments: dict) -> dict:
+async def handoff_to_com(native: Backend, com: Backend, arguments: dict) -> dict:
     request = HandoffArguments.model_validate(arguments)
     receipt = {
-        "ok": False, "stage": "validate_native", "requested_path": request.path,
+        "ok": False, "stage": "check_backends", "requested_path": request.path,
         "saved_path": None, "opened_path": None, "native_released": False,
     }
     try:
+        for backend in (native, com):
+            if not await backend.ping():
+                raise RuntimeError(f"{backend.name} backend unavailable ({backend.stage})")
+
+        receipt["stage"] = "validate_native"
         source = Path(request.path)
         if not source.is_absolute() or source.suffix.lower() != ".ms14":
             raise ValueError("path must be an absolute .ms14 filename")

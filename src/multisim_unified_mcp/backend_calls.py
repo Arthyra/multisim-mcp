@@ -2,11 +2,12 @@
 
 import json
 
-from mcp import ClientSession
 from mcp.shared.exceptions import MCPError
 
+from .backends import Backend
 
-async def backend_result(session: ClientSession, tool: str, **arguments):
+
+async def backend_result(session: Backend, tool: str, **arguments):
     try:
         result = await session.call_tool(tool, arguments, read_timeout_seconds=60)
     except MCPError as error:

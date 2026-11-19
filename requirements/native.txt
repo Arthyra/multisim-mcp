@@ -1,0 +1,9 @@
+# Complete runtime lock for the native environment.
+-r common.txt
+cryptography==48.0.1
+frida==17.23.3
+multisim-native-mcp @ https://github.com/y-wi/multisim-native-mcp/releases/download/v0.5.2/multisim_native_mcp-0.5.2-py3-none-any.whl#sha256=cd46dcf614283c4ea84a3fd5dbafff72539aaf868358c48ee086681fd323e531
+pillow==12.2.0
+ruamel.yaml.clib==0.2.15
+ruamel.yaml==0.18.17
+tomlkit==0.15.2
