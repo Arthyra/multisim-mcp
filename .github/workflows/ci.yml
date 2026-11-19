@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-isolation:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          architecture: x64
+
+      - name: Install the gateway
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          python -m pip install --no-deps --only-binary=:all: -r requirements/gateway.txt
+          python -m pip install --no-deps .
+          python -m pip check
+
+      - name: Test backend isolation
+        run: python -m unittest discover -s tests -p test_backend_isolation.py -v
