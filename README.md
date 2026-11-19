@@ -36,7 +36,7 @@ Use `gateway_status` after connecting to the MCP. If a backend cannot start or i
 
 1. Create or open a real `.ms14` with `native_create_circuit` or `native_open_circuit`. If several Multisim processes are open, use `native_attach` with the process ID and project index.
 2. Use `native_search_library`, then pass the exact name, group and family to `native_place_component`. Inspect the returned pins before wiring.
-3. For F5, call `native_control_interactive` and check `transition_confirmed`. Use `native_set_logic_input` and `native_read_logic_indicators` for live logic tests.
+3. Use `native_verify_f5_cases` to check a truth table in the active project. For manual steps, start F5 with `native_control_interactive` and use `native_set_logic_input` and `native_read_logic_indicators`.
 4. Call `handoff_to_com` with the active document's absolute `.ms14` path. After a successful handoff, call `com_enum_outputs` before requesting a measurement with `com_run_transient`. Disconnect COM before resuming native edits.
 
 The gateway exposes a focused set of tools. It preserves upstream tool schemas and results and serializes tool calls. An interactive simulation can continue after its start request returns. Each backend manages its own Multisim session.
@@ -48,6 +48,24 @@ Call `handoff_to_com` with `{"path":"ABSOLUTE_PATH_TO_ADDER.ms14"}`, substitutin
 Check `ok` and `stage` in the response. A successful result has `stage: "complete"` and includes `saved_path` and `opened_path`. If either backend cannot be reached, the handoff stops at `check_backends` before touching the native document. On later failures, the receipt reports the step and whether the native session was released. If the save succeeded and the COM open failed, use the returned `saved_path` to retry the COM open.
 
 ### Verify live F5 logic
+
+Call `native_verify_f5_cases` once with the input and expected indicator states for each row.
+
+```json
+{
+  "settle_time_s": 0.001,
+  "cases": [
+    {"name": "000", "inputs": {"A": 0, "B": 0, "Cin": 0}, "expected": {"S": 0, "Cout": 0}},
+    {"name": "001", "inputs": {"A": 0, "B": 0, "Cin": 1}, "expected": {"S": 1, "Cout": 0}}
+  ]
+}
+```
+
+Use the same input and indicator references in every row. The tool waits for the configured interval on the native F5 simulation clock, then records the measured indicator states and compares them with the expected bits. Each result includes the settling baseline and sample time. The wall-clock limit per row is `settle_timeout_s` (default 5 seconds). If the clock fails to advance far enough, the row reports a timeout and the remaining rows are skipped.
+
+The tool restores the switch states it recorded at the start. It stops F5 if it started the run, and leaves an already-running simulation running. A paused simulation needs to be resumed or stopped before calling the tool.
+
+For individual interactions, start F5 and use the separate input and indicator tools.
 
 Start F5 with `native_control_interactive`, set the input using `native_set_logic_input` with `{"component_ref":"Cin","state":1}`, and read the outputs after propagation using `native_read_logic_indicators` with `{"component_refs":["S","Cout"]}`. Use the exact reference names from `native_get_circuit_state`. Repeating a requested input level leaves the switch at that level. The indicator tool returns `state` and `lit` from the Multisim runtime, with `null` if the graphic properties disagree.
 

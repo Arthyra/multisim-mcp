@@ -15,8 +15,7 @@ function logicSymbol(ref, model) {
   return ptr(found.id);
 }
 
-editorHandlers.setLogicInput = ({ref, state}) => {
-  const tree = logicTree(true);
+function logicSwitch(ref, tree) {
   const symbol = logicSymbol(ref, "INTERACTIVE_DIGITAL_CONSTANT");
   const mouse = method("Od101dll.dll", "?GetMouseInteractInterface@CIITSymbolComp@@",
     "pointer", ["pointer"])(symbol);
@@ -31,6 +30,10 @@ editorHandlers.setLogicInput = ({ref, state}) => {
     "int", ["pointer", "pointer"]);
   const previous = getState(instrument, tree);
   if (previous !== 0 && previous !== 1) throw new Error("Switch state is not binary: " + ref);
+  return {ref, tree, mouse, instrument, getState, previous};
+}
+
+function applyLogicInput({ref, tree, mouse, instrument, getState, previous}, state) {
   if (previous !== state) {
     // The stock switch handles event 2 on subcomponent 1. The handler takes
     // the IMouseInteract subobject, while GetAnimationState takes the full object.
@@ -39,10 +42,13 @@ editorHandlers.setLogicInput = ({ref, state}) => {
     if (getState(instrument, tree) !== state) throw new Error("Switch did not reach requested state: " + ref);
   }
   return {ref, previous, state, changed: previous !== state};
+}
+
+editorHandlers.setLogicInput = ({ref, state}) => {
+  return applyLogicInput(logicSwitch(ref, logicTree(true)), state);
 };
 
-editorHandlers.readLogicIndicators = ({refs}) => {
-  const tree = logicTree(false);
+function readLogicIndicators(refs, tree) {
   const read = method("Od101dll.dll", "?GetSubComponentPrp@CIITSymbolComp@@",
     "uint", ["pointer", "int", "int", "pointer"]);
   const indicators = refs.map(ref => {
@@ -54,4 +60,25 @@ editorHandlers.readLogicIndicators = ({refs}) => {
     return {ref, state, lit: state === null ? null : state === 1};
   });
   return {indicators, source: "native runtime graphic properties"};
+}
+
+editorHandlers.readLogicIndicators = ({refs}) => {
+  return readLogicIndicators(refs, logicTree(false));
+};
+
+editorHandlers.f5LogicSnapshot = ({input_refs, changes, indicator_refs}) => {
+  const tree = logicTree(true);
+  const switches = input_refs.map(ref => logicSwitch(ref, tree));
+  const indicators = indicator_refs.length ? readLogicIndicators(indicator_refs, tree).indicators : [];
+  // Sample a row in a separate call, after its settle time. Keeping the writes
+  // in one UI-thread dispatch avoids idle frames between inputs in a row.
+  const inputs = switches.map(switchState => {
+    const ref = switchState.ref;
+    if (Object.prototype.hasOwnProperty.call(changes, ref)) {
+      return [ref, applyLogicInput(switchState, changes[ref]).state];
+    }
+    return [ref, switchState.previous];
+  });
+  const clock = interactiveStatus();
+  return {inputs: Object.fromEntries(inputs), indicators, simulation_time_s: clock.simulation_time_s};
 };

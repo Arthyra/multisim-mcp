@@ -107,6 +107,17 @@ def main() -> None:
         require_logic_profile()
         return server.host.call("readLogicIndicators", {"refs": component_refs})
 
+    @server.server.tool()
+    @server.checked
+    def native_f5_logic_snapshot(
+        input_refs: list[str], changes: dict[str, Literal[0, 1]], indicator_refs: list[str],
+    ) -> dict:
+        """Read or set F5 logic inputs and take a same-dispatch clock and output snapshot."""
+        require_logic_profile()
+        return server.host.call("f5LogicSnapshot", {
+            "input_refs": input_refs, "changes": changes, "indicator_refs": indicator_refs,
+        })
+
     server.main()
 
 

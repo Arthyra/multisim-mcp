@@ -20,7 +20,7 @@ async def fake_backend(role: str, stop_on_call: bool):
     calls = []
     names = TOOLS[role]
     if role == "native":
-        names += ("native_handoff_context",)
+        names += ("native_handoff_context", "native_f5_logic_snapshot")
 
     async def list_tools(_context, _params):
         return types.ListToolsResult(tools=[

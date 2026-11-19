@@ -54,22 +54,24 @@ async def ensure_simserver(session, zero_case):
         raise RuntimeError("The startup regression requires a running Multisim /SimServer")
 
 
+def f5_row(bits, expected):
+    return {
+        "name": bits, "inputs": dict(zip(INPUTS, map(int, bits))),
+        "expected": dict(zip(INDICATORS, expected)),
+    }
+
+
 async def check_lamps(session):
-    for bits, expected in TRUTH_TABLE.items():
-        for ref, bit in zip(INPUTS, bits):
-            reading = await call(session, "native_set_logic_input", component_ref=ref, state=int(bit))
-            assert reading["state"] == int(bit), reading
-        # The next graphics update is asynchronous. Adjacent cases differ by
-        # one input and always change the sum, so a stale frame cannot pass.
-        for _ in range(15):
-            read = await call(session, "native_read_logic_indicators", component_refs=list(INDICATORS))
-            observed = tuple(indicator["state"] for indicator in read["indicators"])
-            if observed == expected:
-                break
-            await asyncio.sleep(0.08)
-        assert observed == expected, (bits, expected, observed)
-        print(f"F5 {bits} -> {observed}", flush=True)
-    await call(session, "native_set_logic_input", component_ref="A", state=0)
+    await call(session, "native_set_logic_input", component_ref="Cin", state=1)
+    cases = [f5_row(bits, expected) for bits, expected in TRUTH_TABLE.items()]
+    result = await call(session, "native_verify_f5_cases", cases=cases)
+    assert result["passed"] and result["passed_count"] == 8 and not result["started_here"], result
+    for row in result["cases"]:
+        assert row["sampled_at_s"] >= row["settle_from_s"] + result["settle_time_s"], row
+        print(f"F5 {row['name']} -> {row['observed']} at {row['sampled_at_s']} s", flush=True)
+    assert (await call(session, "native_interactive_status"))["state_name"] == "running"
+    restored = await call(session, "native_set_logic_input", component_ref="Cin", state=0)
+    assert restored["previous"] == 1, restored
 
 
 async def verify_com(session, cases):
@@ -132,6 +134,13 @@ async def run(config, adder, cases_dir):
             assert {"1Y", "2Y"} <= {pin["name"] for pin in chip["component"]["pins"]}, chip
             await call(session, "native_delete_object", component_ref="U3")
             print("Placed a native 74LS153N from the master library.", flush=True)
+
+            bad = await call(session, "native_verify_f5_cases", cases=[f5_row("001", (0, 0))])
+            assert bad["started_here"] and not bad["passed"] and not bad["restore_errors"], bad
+            assert bad["cases"][0]["observed"] == {"S": 1, "Cout": 0}, bad
+            status = await call(session, "native_interactive_status")
+            assert status["state_name"] in ("stopped", "unprepared"), status
+            print("F5 rejected a false expectation and returned to the stopped state.", flush=True)
 
             started = await call(session, "native_control_interactive", action="start", wait_timeout=10)
             assert started["transition_confirmed"], started

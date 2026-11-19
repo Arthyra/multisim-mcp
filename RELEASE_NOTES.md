@@ -1,6 +1,8 @@
-# v0.4.0 preview
+# v0.5.0 preview
 
 This version exposes one stdio MCP server for real NI Multisim editing and COM analysis. It can search the main library, place native parts, run F5, operate stock digital switches, read red logic indicators, and hand a saved circuit to COM.
+
+The `native_verify_f5_cases` tool runs a truth table in one F5 session. It takes each reading after the requested simulated settling time, reports the observed bits and timestamp, and restores the original switch states. See the [F5 truth-table example](README.md#verify-live-f5-logic).
 
 The installer locks the runtime dependencies for all three Python environments. The standalone `--doctor` command produces path-free installation diagnostics, and `gateway_status` reports backend availability. A single unavailable backend leaves the healthy backend's tools usable. A handoff checks both backend connections before touching the active native document.
 

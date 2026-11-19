@@ -16,6 +16,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 from .backends import Backend, start_backends
+from .f5_cases import VERIFY_F5_TOOL, verify_f5_cases
 from .handoff import HANDOFF_TOOL, handoff_to_com
 from .logic_cases import VERIFY_LOGIC_TOOL, verify_logic_cases
 
@@ -71,7 +72,9 @@ STATUS_TOOL = types.Tool(
 
 def configured_backends(config: dict) -> dict[str, Backend]:
     return {
-        "native": Backend("native", config.get("native"), (*TOOLS["native"], "native_handoff_context")),
+        "native": Backend("native", config.get("native"), (
+            *TOOLS["native"], "native_handoff_context", "native_f5_logic_snapshot",
+        )),
         "com": Backend("com", config.get("com"), TOOLS["com"]),
     }
 
@@ -86,7 +89,7 @@ def tool_result(result, *, is_error=False) -> types.CallToolResult:
 
 async def serve(backends: dict[str, Backend]) -> None:
     async with start_backends(backends, sys.stderr):
-        builtins = {tool.name: tool for tool in (STATUS_TOOL, HANDOFF_TOOL, VERIFY_LOGIC_TOOL)}
+        builtins = {tool.name: tool for tool in (STATUS_TOOL, HANDOFF_TOOL, VERIFY_LOGIC_TOOL, VERIFY_F5_TOOL)}
         routes = {
             name if role == "native" else f"com_{name}": (backends[role], name)
             for role, names in TOOLS.items() for name in names
@@ -120,6 +123,11 @@ async def serve(backends: dict[str, Backend]) -> None:
                     return tool_result(await verify_logic_cases(backends["com"], arguments))
                 if params.name == HANDOFF_TOOL.name:
                     return tool_result(await handoff_to_com(backends["native"], backends["com"], arguments))
+                if params.name == VERIFY_F5_TOOL.name:
+                    if not await backends["native"].ping():
+                        return tool_result({"error": "Native backend unavailable", "backend": "native",
+                                            "stage": backends["native"].stage}, is_error=True)
+                    return tool_result(await verify_f5_cases(backends["native"], arguments))
                 if params.name not in routes:
                     return tool_result({"error": f"Unknown tool: {params.name}"}, is_error=True)
                 backend, upstream = routes[params.name]
@@ -144,8 +152,8 @@ async def serve(backends: dict[str, Backend]) -> None:
                 "that exact saved file in COM. Close the COM connection before native edits. "
                 "Use gateway_status for backend availability. Healthy backend tools remain usable "
                 "when the other backend cannot start. "
-                "During F5, set stock logic inputs with native_set_logic_input and read "
-                "red logic indicators with native_read_logic_indicators after the outputs settle."
+                "Use native_verify_f5_cases for a complete F5 truth table, or set stock logic "
+                "inputs and read red logic indicators with the individual tools."
             ),
             on_list_tools=list_tools,
             on_call_tool=call_tool,
