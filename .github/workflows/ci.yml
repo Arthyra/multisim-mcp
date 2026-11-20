@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  backend-isolation:
+  unit-tests:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
@@ -28,5 +28,5 @@ jobs:
           python -m pip install --no-deps .
           python -m pip check
 
-      - name: Test backend isolation
-        run: python -m unittest discover -s tests -p test_backend_isolation.py -v
+      - name: Run unit and MCP protocol tests
+        run: python -m unittest discover -s tests -v

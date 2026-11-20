@@ -2,32 +2,28 @@
 
 [简体中文](README.md) · **English**
 
-A local stdio MCP server for editing native NI Multisim schematics, verifying digital logic in F5 mode, and running COM analyses on saved circuits.
+Give an AI assistant a local MCP connection to NI Multisim so it can edit schematics, control interactive simulation, and check circuits against measured results.
 
-The project uses two upstream backends. [multisim-native-mcp](https://github.com/y-wi/multisim-native-mcp) provides native schematic and F5 operations, and [Multisim MCP](https://github.com/yxy050208/multisim-mcp) provides COM simulation.
+[Open the quick-start guide](QUICKSTART.md#english)
 
-## Quick start
+## What you can do
 
-[打开快速开始](QUICKSTART.md#english)
+- **Draw and inspect schematics.** Find specific parts in the Multisim master database, place and wire them, and save an editable `.ms14`. Use the native netlist to check electrical connections, inspect layout collisions separately, and export a schematic image when needed.
+- **Check a digital truth table.** Run interactive simulation in Multisim (press F5 to start it manually), set each switch combination, and compare live indicators with expected values after a specified simulated interval. The tool then restores the original switches.
+- **Measure voltages and read waveforms.** Use Native first for DC operating-point, transient, and AC analysis. Hand the saved circuit to COM for a COM-specific capability, a cross-check, or an explicit request. The gateway verifies that both backends use the same file.
 
-## Capabilities
+## Compatibility and limits
 
-| Workflow | Supported operations |
-| --- | --- |
-| Schematic editing | Create or open `.ms14`, place native parts from the master library, connect pins, label nets, and save. |
-| Interactive F5 | Set logic inputs, read actual indicator states, and verify a truth table on the simulation clock. |
-| COM simulation | Open the same circuit after handoff, run DC, AC, or transient analysis, and verify batches of saved logic cases. |
+- The real Multisim test environment is 32-bit NI Multisim `14.3.1500.0` on Windows, with Native `0.5.2` and COM `1.3.1`. The standard install uses one 64-bit gateway and two 32-bit CPython 3.12 backend environments. Native checks the build and key modules. Other Multisim builds are unverified.
+- Automatic switch and indicator operations support `INTERACTIVE_DIGITAL_CONSTANT` and `PROBE_DIG_RED`. Truth-table rows are sampled after a fixed simulated interval. Verify timing behavior separately.
+- COM numerical analysis uses the Windows automation interface. Logic checks on saved COM cases are intended for combinational circuits with held inputs. Native and COM run in separate processes behind one stdio MCP connection.
 
-## Tested configuration
+## Documentation and upstream projects
 
-Windows with 32-bit Multisim `14.3.1500.0`, native backend `v0.5.2`, and COM backend `v1.3.1`. The full regression used 64-bit Python 3.13 for the gateway and 32-bit CPython 3.12 for both backends. F5 logic operations support the tested `INTERACTIVE_DIGITAL_CONSTANT` switches and `PROBE_DIG_RED` indicators.
+This project is in preview. The [quick-start guide](QUICKSTART.md#english) covers installation, diagnostics, and verification. The [agent instructions](AGENTS.md) cover circuit checks and protecting the original design.
 
-## v0.5.0 preview
-
-- Added `native_verify_f5_cases` for simulation-clock sampling, row-by-row verdicts, and switch-state restoration.
-- Verified all eight live full-adder inputs, exact-file handoff, and all eight saved COM cases. Both verification modes detected an intentionally incorrect expectation.
-- Includes a locked three-environment installer, standalone diagnostics, and backend fault isolation.
+[Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) provides native editing, checks, and simulation. [Multisim MCP](https://github.com/yxy050208/multisim-mcp) provides COM numerical analysis. This project adds row-by-row interactive truth-table checks and a same-file handoff between backends.
 
 ## License
 
-The gateway is [MIT licensed](LICENSE). This is an independent interoperability project. Users supply a licensed Multisim installation and their own circuits. Native editing and live F5 interaction depend on version-specific Multisim internals. See the [third-party notices](THIRD_PARTY_NOTICES.md).
+The gateway uses the [MIT license](LICENSE). Users install and activate their own copy of Multisim. See the [third-party notices](THIRD_PARTY_NOTICES.md) for Frida, non-public interfaces, and upstream dependencies.

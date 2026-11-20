@@ -88,10 +88,22 @@ def main() -> None:
         return {**host.document_context(), "project_path": host.call("inspect")["projectPath"]}
 
     @cache
+    def logic_profile_matches():
+        try:
+            return (server.host.runtime_status()["compatible"]
+                    and bridge.sha256(bridge.INSTALL / "interact.dll") == INTERACT_SHA256)
+        except OSError:
+            return False
+
     def require_logic_profile():
-        if (not server.host.runtime_status()["compatible"]
-                or bridge.sha256(bridge.INSTALL / "interact.dll") != INTERACT_SHA256):
-            raise RuntimeError("Logic I/O requires the tested Multisim 14.3.1500.0 runtime")
+        if not logic_profile_matches():
+            raise RuntimeError("Logic I/O requires the tested Multisim 14.3.1500.0 runtime and interact.dll")
+
+    @server.server.tool()
+    @server.checked
+    def native_logic_profile_status() -> dict:
+        """Check the pinned interactive-logic build profile without opening a document."""
+        return {"compatible": logic_profile_matches()}
 
     @server.server.tool()
     @server.checked

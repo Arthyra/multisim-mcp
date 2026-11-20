@@ -72,13 +72,14 @@ editorHandlers.f5LogicSnapshot = ({input_refs, changes, indicator_refs}) => {
   const indicators = indicator_refs.length ? readLogicIndicators(indicator_refs, tree).indicators : [];
   // Sample a row in a separate call, after its settle time. Keeping the writes
   // in one UI-thread dispatch avoids idle frames between inputs in a row.
-  const inputs = switches.map(switchState => {
+  switches.forEach(switchState => {
     const ref = switchState.ref;
     if (Object.prototype.hasOwnProperty.call(changes, ref)) {
-      return [ref, applyLogicInput(switchState, changes[ref]).state];
+      const previous = switchState.getState(switchState.instrument, tree);
+      applyLogicInput({...switchState, previous}, changes[ref]);
     }
-    return [ref, switchState.previous];
   });
+  const inputs = switches.map(({ref, getState, instrument}) => [ref, getState(instrument, tree)]);
   const clock = interactiveStatus();
   return {inputs: Object.fromEntries(inputs), indicators, simulation_time_s: clock.simulation_time_s};
 };

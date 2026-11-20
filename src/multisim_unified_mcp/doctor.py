@@ -3,10 +3,10 @@
 import asyncio
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
-import winreg
 
 from mcp.shared.exceptions import MCPError
 from pydantic import ValidationError
@@ -68,6 +68,10 @@ def probe_python(backend: Backend) -> dict:
 
 
 def com_registered() -> bool:
+    if sys.platform != "win32":
+        return False
+    import winreg
+
     try:
         with winreg.OpenKey(
             winreg.HKEY_CLASSES_ROOT, r"MultisimInterface.MultisimApp.1\CLSID", 0,
@@ -79,16 +83,24 @@ def com_registered() -> bool:
 
 
 async def runtime_report(backend: Backend) -> dict:
-    if backend.session is None:
+    if not backend.available():
         return {"ok": False, "reason": "backend_unavailable"}
     try:
         if backend.name == "native":
             runtime = await backend_result(backend, "native_runtime_status")
+            f5_tools = all(backend.supports(name) for name in (
+                "native_logic_profile_status", "native_f5_logic_snapshot",
+                "native_set_logic_input", "native_read_logic_indicators",
+            ))
+            f5_compatible = f5_tools and (
+                await backend_result(backend, "native_logic_profile_status")
+            ).get("compatible") is True
             return {
-                "ok": runtime["available"] and runtime["compatible"],
+                "ok": runtime["available"] and runtime["compatible"] and f5_compatible,
                 "multisim_installed": runtime["available"],
                 "matches_tested_build": runtime["compatible"],
                 "tested_build": runtime["tested_version"],
+                "f5_logic_compatible": f5_compatible,
                 "missing_modules": [
                     item["module"] for item in runtime["checks"] if not item["present"]
                 ],
@@ -104,12 +116,20 @@ async def runtime_report(backend: Backend) -> dict:
             "worker_python_bits": runtime["python_bits"],
             "pywin32_available": runtime["pywin32_available"],
             "worker_compatible": runtime["runtime_compatible"],
+            "synchronized_transient": backend.supports("run_transient_outputs"),
         }
-    except (RuntimeError, MCPError):
+    except (KeyError, TypeError, RuntimeError, MCPError):
         return {"ok": False, "reason": "runtime_probe_failed"}
 
 
 async def diagnose(backends: dict[str, Backend]) -> dict:
+    gateway_ok = sys.platform == "win32" and struct.calcsize("P") == 8 and sys.version_info >= (3, 11)
+    gateway = {
+        "ok": gateway_ok, "platform": sys.platform,
+        "python_bits": struct.calcsize("P") * 8, "python_version": list(sys.version_info[:3]),
+    }
+    if sys.platform != "win32":
+        return {"ok": False, "gateway": gateway, "reason": "windows_required", "backends": {}}
     python_reports = {name: probe_python(backend) for name, backend in backends.items()}
     eligible = {name: backend for name, backend in backends.items() if python_reports[name]["ok"]}
     with open(os.devnull, "w") as stderr:
@@ -119,15 +139,15 @@ async def diagnose(backends: dict[str, Backend]) -> dict:
                 name: {"python": python_reports[name], "startup": backend.status(), "runtime": runtime}
                 for (name, backend), runtime in zip(backends.items(), runtime_reports)
             }
-    gateway_ok = sys.platform == "win32" and struct.calcsize("P") == 8 and sys.version_info >= (3, 11)
+    for report in reports.values():
+        version = report["startup"]["version"]
+        if version is not None and not re.fullmatch(r"v?\d+(?:\.\d+){1,3}", version):
+            report["startup"]["version"] = None
     return {
         "ok": gateway_ok and all(
             report["python"]["ok"] and report["startup"]["available"] and report["runtime"]["ok"]
             for report in reports.values()
         ),
-        "gateway": {
-            "ok": gateway_ok, "platform": sys.platform,
-            "python_bits": struct.calcsize("P") * 8, "python_version": list(sys.version_info[:3]),
-        },
+        "gateway": gateway,
         "backends": reports,
     }

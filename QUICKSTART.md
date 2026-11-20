@@ -1,173 +1,149 @@
 # 快速开始 · Quick start
 
-[简体中文](#简体中文) · [English](#english)
+[简体中文](#简体中文) · [English](#english) · [共用命令与参数示例 / Shared examples](#shared-examples)
 
 ## 简体中文
 
-[返回中文 README](README.md)
-
 ### 安装要求
 
-- Windows 上已安装并激活 NI Multisim 14.3。安装器针对实测的 32 位构建 `14.3.1500.0`。
-- 网关使用 64 位 Python 3.11 或更新版本，两个后端使用 32 位 CPython 3.12。[Python Windows 下载页](https://www.python.org/downloads/windows/)
-- 安装时需要联网下载固定版本的[原生后端 v0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2)、[COM 后端 v1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/)及其依赖。
+- Windows 上已安装并激活 32 位 NI Multisim `14.3.1500.0`。Native 会核对 Multisim 构建与关键模块，其他构建未经验证。
+- 网关需要 64 位 Python 3.11 或以上，实测使用 3.13。两个后端需要 32 位 CPython 3.12。[Python 下载](https://www.python.org/downloads/windows/)
+- 安装时联网下载 [Native 0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2)、[COM 1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/)和锁定的依赖。
 
 ### 安装并连接
 
-克隆或下载仓库，在仓库目录打开 PowerShell，运行安装脚本。
+在仓库目录打开 PowerShell，执行[安装命令](#install-and-diagnose)。安装器默认使用 `python`，也会尝试从 `py` 找到 64 位 Python 3.13。它用 `py -3.12-32` 查找 32 位解释器。可用 `-Python64` 和 `-Python32` 指定相应的 `python.exe`，用 `-MultisimPath` 指定含有 `multisim.exe` 的目录。
 
-```powershell
-.\install.ps1
-```
-
-安装器默认使用 `python` 创建 64 位网关环境，并通过 `py -3.12-32` 查找 32 位解释器。也可以用 `-Python64` 和 `-Python32` 指定对应的 Python 可执行文件。如果 Multisim 安装在自定义位置，用 `-MultisimPath` 指定包含 `multisim.exe` 的目录。`-InstallDir` 可以指定其他安装目录。
-
-脚本默认在 `.install` 下创建三个环境，并生成两份本地配置。每套环境按 [requirements](requirements/) 中的固定版本安装依赖，再运行 `pip check`。Codex 用户将生成的 `multisim.client.toml` 配置段加入客户端配置。其他 stdio MCP 客户端使用同一个可执行文件和参数，按客户端格式配置。已有的 `multisim.local.toml` 会被保留。
-
-启动 MCP 后，可以调用 `native_runtime_status` 和 `com_runtime_status` 检查本地运行环境。需要将 `.ms14` 解码为 XML 时，参照 COM 后端的[可选编解码器安装说明](https://github.com/yxy050208/multisim-mcp/blob/v1.3.1/mcp_server/README.md#install)。
+默认在 `.install` 下建立三个隔离环境。把生成的 `multisim.client.toml` 配置段复制到 MCP 客户端。其他 stdio 客户端也可使用其中的命令和参数。可用 `-InstallDir` 改安装位置。重跑会复用位数和版本符合要求的环境，更新锁定依赖与网关，保留已存在的 `multisim.local.toml`。
 
 ### 安装诊断
 
-```powershell
-.\.install\gateway\Scripts\multisim-unified-mcp.exe --config .install\multisim.local.toml --doctor
-```
-
-`--doctor` 检查 Python 位数、所需模块、后端启动、Multisim 构建版本，以及 COM 工作进程的兼容性和注册状态。命令输出不含本机路径的 JSON 报告，并以只读方式检查运行环境。软件激活在 Multisim 中完成。
-
-连接 MCP 后，用 `gateway_status` 查看两个后端的状态。某个后端启动失败或连接中断时，另一个后端仍可提供服务。修复故障后端的安装或配置后，重启网关即可重新加载。
+执行[诊断命令](#install-and-diagnose)，获得可分享的 JSON 报告。它检查 Python、后端启动、Native 构建及 F5 所需模块、COM 工作进程和注册状态，测试时无需打开工程或激活软件。客户端里的 `gateway_status` 直接报告连接状态，仿真运行期间也可查询。修复配置或安装问题后重启网关。单侧后端不可用时，另一侧仍可提供已发现的工具。
 
 ### 第一个电路
 
-1. 复制一份自己的 `.ms14` 工程。调用 `native_open_circuit`，传入 `{"source_path":"ABSOLUTE_PATH_TO_YOUR_CIRCUIT.ms14"}`，将占位符替换为工程的绝对路径。需要空白原理图时，用 `native_create_circuit`。
-2. 调用 `native_search_library` 并传入 `{"query":"74LS153N"}` 搜索元件。这个型号可选择 `TTL / 74LS` 条目。将返回的型号、组和系列传给 `native_place_component`，在图纸空白处放置，并根据返回的引脚名接线。仿真原电路前，移除用于试放且尚未接线的元件。
-3. 工程带有受支持的开关和指示灯时，可以进行 [F5 真值表验证](#验证-f5-数字逻辑)。需要对已保存电路做数值仿真时，继续第 4 步。
-4. 将当前 `.ms14` 的绝对路径传给 `handoff_to_com`。交接成功后，先调用 `com_enum_outputs`，再将返回的电压信号作为 `output_name` 传给 `com_run_transient`。恢复原理图编辑前，先断开 COM 会话。
-
-网关保留上游工具的参数和结果格式，并按顺序执行工具调用。启动 F5 的请求返回后，仿真仍可继续运行。两个后端各自管理自己的 Multisim 会话。
+1. 用 `native_create_circuit` 创建空白工程。编辑现有工程时，先用 `native_open_copy` 将源文件复制到指定的未占用绝对路径。要把这份副本交给 COM，请关闭后通过 `native_open_circuit` 重新打开副本。
+2. 用 `native_search_library` 按型号搜索元件。以 `74LS153N` 为例，可选 `TTL / 74LS` 条目。将库条目的型号、组和系列传给 `native_place_component`，再按实际引脚名接线。
+3. 电气连接用 `native_get_circuit_state` 的引脚和网络以及 `native_check_netlist` 的网表和告警来核对，图面碰撞用 `native_check_layout` 单独检查。如检查结果提示句柄失效，后续编辑使用它返回的新句柄。用 `native_export_image` 导出电路图。
+4. 数字逻辑先做[交互仿真](#验证-f5-数字逻辑)。数值分析先停止交互仿真，再用 `native_run_analysis` 跑工作点或瞬态，或用 `native_run_ac_sweep` 做交流扫频。将返回的 `raw_path` 交给 `native_read_waveform` 读取采样点。交接 COM 见下文。
 
 ### 验证 F5 数字逻辑
 
-调用一次 `native_verify_f5_cases`，为每行提供输入值和预期灯态。
+用 `native_verify_f5_cases` 逐组核对实际灯态，见 [F5 参数示例](#f5-input)。所有行应使用同一组开关与指示灯名称。工具在每次拨动后等待指定的仿真时间，再读取一次灯态。这个时间条件不判断输出是否稳定。超时会停止后续用例，灯态不确定会单独标为 `indeterminate`。
 
-```json
-{
-  "settle_time_s": 0.001,
-  "cases": [
-    {"name": "000", "inputs": {"A": 0, "B": 0, "Cin": 0}, "expected": {"S": 0, "Cout": 0}},
-    {"name": "001", "inputs": {"A": 0, "B": 0, "Cin": 1}, "expected": {"S": 1, "Cout": 0}}
-  ]
-}
-```
-
-每行使用同一组输入和指示灯名称。工具按 F5 仿真时钟等待指定间隔，读取指示灯的实际状态，再与预期值比较。每行返回等待起点和采样时间。`settle_timeout_s` 设定每行实际等待的时限，默认 5 秒。如果仿真时钟未在时限内达到采样目标，当前行报告超时，后续行跳过。
-
-验证结束后，工具恢复原开关状态。由工具启动的仿真会停止，调用前已经运行的仿真会继续。仿真处于暂停状态时，请先恢复运行或停止。
-
-单独操作时，用 `native_control_interactive` 启动 F5，再给 `native_set_logic_input` 传入 `{"component_ref":"Cin","state":1}`。等信号传播后，给 `native_read_logic_indicators` 传入 `{"component_refs":["S","Cout"]}` 读取指示灯。用 `native_get_circuit_state` 确认元件名称。重复设置相同电平时，开关保持该电平。指示灯工具返回 `state` 和 `lit`，用于判断亮灯的图形属性不一致时返回 `null`。
-
-F5 逻辑输入和读取功能在 Multisim `14.3.1500.0` 上支持原生 `INTERACTIVE_DIGITAL_CONSTANT` 开关和 `PROBE_DIG_RED` 指示灯。工具调用元件内部的交互事件，并从 Multisim 读取运行时图形状态，整个过程无需操作桌面鼠标或键盘。
+仅支持 Multisim 自带的 `INTERACTIVE_DIGITAL_CONSTANT` 与 `PROBE_DIG_RED`。工具在结束时恢复开关，只停止它自己启动的仿真。原本暂停的仿真需先手动恢复或停止。单独操作时可用 `native_control_interactive`、`native_set_logic_input` 与 `native_read_logic_indicators`。这些工具直接调用 Multisim 的交互事件，无需操作桌面鼠标或键盘。
 
 <details>
 <summary>手动安装、工程交接与回归测试</summary>
 
 #### 手动安装
 
-`install.ps1` 用于简化环境准备。安装完成后，客户端直接启动 `multisim-unified-mcp`。
-
-手动安装时，先创建三个 Python 环境，再分别安装 [requirements](requirements/) 中对应的锁定依赖。在网关环境中运行 `python -m pip install --no-deps --only-binary=:all: -r requirements/gateway.txt` 和 `python -m pip install --no-deps .`。两个 32 位环境分别安装 `native.txt` 和 `com.txt` 中的依赖。每套环境装好后运行 `python -m pip check`。
-
-将 [multisim.example.toml](multisim.example.toml) 复制为 `multisim.local.toml`，填入各后端 Python 的绝对路径。Multisim 使用自定义安装目录时，在 `[native.env]` 中设置 `MULTISIM_NATIVE_INSTALL`。配置客户端启动网关，并用 `--config` 传入该 TOML 文件的绝对路径。
+为三个 Python 环境分别安装 [requirements](requirements/) 中对应的锁定文件，再安装网关包，见[手动安装命令](#manual-install)。复制 [multisim.example.toml](multisim.example.toml) 为 `multisim.local.toml`，填写解释器绝对路径。自定义 Multisim 目录填写 `[native.env]` 中的 `MULTISIM_NATIVE_INSTALL`，客户端使用 `multisim-unified-mcp --config` 指向这份配置。
 
 #### 将工程交给 COM
 
-调用 `handoff_to_com` 并传入 `{"path":"ABSOLUTE_PATH_TO_ADDER.ms14"}`，路径应指向当前打开的工程。网关先核对工程路径，再停止 F5、保存、释放原生会话，随后连接 COM 并打开保存后的文件。交接期间，网关按顺序执行这些操作。
+需要 COM 专有能力、跨后端复核或明确指定 COM 时，把当前正在编辑、允许覆盖保存的 `.ms14` 绝对路径传给 `handoff_to_com`。网关核对文件，依次停止交互仿真、保存、释放 Native、连接 COM 并打开同一文件。成功结果包含 `saved_path` 和 `opened_path`。失败时查看 `stage`、各步骤的确认字段和 `recovery`。取消或超时后，当前步骤可能已经执行，请核实文件和当前会话再重试。继续原生编辑前断开 COM。
 
-检查返回结果中的 `ok` 和 `stage`。成功时，`stage` 为 `"complete"`，并返回 `saved_path` 和 `opened_path`。任一后端不可达时，交接会在 `check_backends` 阶段结束，原生工程保持当前状态。后续步骤失败时，结果会说明失败阶段以及原生会话是否已释放。如果保存成功而 COM 打开失败，可以使用返回的 `saved_path` 重试。
+用 `com_enum_outputs` 查询电压信号，再按需用 `com_run_transient` 等工具。可选 XML 编解码见 [COM 上游安装说明](https://github.com/yxy050208/multisim-mcp/blob/v1.3.1/mcp_server/README.md#install)。
 
 #### 批量验证已保存的逻辑用例
 
-连接 COM 后，调用 `com_verify_logic_cases`。每份 `.ms14` 应预先设好该用例的输入状态。使用 `com_enum_outputs` 查询电压输出名称。
-
-```json
-{
-  "cases": [
-    {"name": "000", "path": "ABSOLUTE_PATH_TO_ADDER_000.ms14",
-     "expected": {"V(OutProbe)": 0, "V(OutProbe1)": 0}},
-    {"name": "111", "path": "ABSOLUTE_PATH_TO_ADDER_111.ms14",
-     "expected": {"V(OutProbe)": 1, "V(OutProbe1)": 1}}
-  ]
-}
-```
-
-每个输出返回最后一个采样点的电压、时间、预期值、实测值和判定。默认 TTL 阈值下，电压不高于 0.8 V 判为低电平，不低于 2.0 V 判为高电平，中间区域判为不确定。按电路需要调整 `low_max_v`、`high_min_v` 和 `duration_s`。验证完成后，COM 会话保留最后打开的用例。
+用 `com_verify_logic_cases` 验证已经设好恒定输入的 `.ms14`，见 [COM 参数示例](#com-input)。一个用例的所有输出来自同一次瞬态仿真，使用同一采样时刻的末点。默认 TTL 阈值为 ≤0.8 V 低电平、≥2.0 V 高电平，中间电压不通过。按传播时间设置 `duration_s`。此工具用于组合逻辑，不能代替时序验证。自定义 COM 启动命令若缺少同步多通道接口，仍可验证单输出。
 
 #### 连接现有原理图窗口
 
-原生后端在查找编辑器时会跳过带 `/SimServer` 参数的无界面进程。仿真器和 COM 仍可使用这些进程。如果打开了多个原理图编辑器，用 `native_attach` 指定进程 ID 和工程索引。连接后可用 `native_list_projects` 查看工程及其索引，索引 0 对应该进程的第一份工程。
+有多个编辑器时用 `native_attach` 指定进程 ID 和工程索引。用 `native_list_projects` 查看项目。编辑器发现会跳过 `/SimServer` 进程。
 
 #### 回归测试
 
-[GitHub Actions](.github/workflows/ci.yml) 会在推送到 `main` 或提交拉取请求时运行后端隔离测试，模拟后端启动失败和连接中断。也可以在网关 Python 环境中用 `python -m unittest discover -s tests -p test_backend_isolation.py` 本地运行。
-
-运行完整集成测试前，按前文安装并配置后端，关闭 Multisim 原理图编辑窗口，以便测试独立启动。脚本使用你提供的工程的临时副本。
-
-- `--adder` 指向一份全加器 `.ms14`。工程包含 `A`、`B`、`Cin` 原生逻辑开关、`S` 和 `Cout` 红色逻辑指示灯，以及 `V(OutProbe)` 和 `V(OutProbe1)` 两个电压输出。请保留未使用的 `U3` 位号，供测试临时放件。
-- `--cases-dir` 指向八个已保存的原生用例，文件名为 `E5_000.ms14` 至 `E5_111.ms14`。每份用例使用相同的两个电压输出名，并设置与文件名对应的初始输入状态。
-
-```powershell
-.\.install\gateway\Scripts\python.exe tests\smoke_multisim.py --config .install\multisim.local.toml --adder $adderFile --cases-dir $caseDirectory
-```
-
-将 `$adderFile` 和 `$caseDirectory` 设为本机测试数据。测试覆盖 `/SimServer` 运行时打开工程、主库放件、F5 八组真值表、交接路径核对和 COM 实测，其中包括故意填错预期值的用例。运行此测试需要本机已授权的 Multisim 和自备测试工程。
+[CI](.github/workflows/ci.yml) 运行无需 Multisim 的单元和 MCP 协议测试。实机回归需要授权的 Multisim 和自己的工程夹具，脚本只操作临时副本。关闭其他 Multisim 原理图窗口后，参照[测试命令与夹具](#tests)运行。
 
 </details>
 
 ## English
 
-[Back to English README](README.en.md)
-
 ### Requirements
 
-- Windows with an activated NI Multisim 14.3 installation. The installer targets the tested 32-bit build `14.3.1500.0`.
-- 64-bit Python 3.11 or newer for the gateway and 32-bit CPython 3.12 for the backends. The [Python Windows downloads](https://www.python.org/downloads/windows/) list 32-bit installers where available.
-- Internet access to download the pinned [native backend v0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2), [COM backend v1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/), and their dependencies.
+- Windows with an activated 32-bit NI Multisim `14.3.1500.0` installation. Native checks the build and key modules. Other builds are unverified.
+- 64-bit Python 3.11 or later for the gateway (tested on 3.13) and 32-bit CPython 3.12 for both backends. [Python downloads](https://www.python.org/downloads/windows/)
+- Internet access to install the pinned [Native 0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2), [COM 1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/), and runtime dependencies.
 
 ### Install and connect
 
-Clone or download the repository. Open PowerShell in the checkout and run the installer.
+Open PowerShell in the repository and run the [install command](#install-and-diagnose). The installer tries `python` and can fall back to the launcher for 64-bit Python 3.13. It uses `py -3.12-32` to find 32-bit Python. Supply explicit executables using `-Python64` and `-Python32`. Use `-MultisimPath` for a custom directory containing `multisim.exe`.
 
-```powershell
-.\install.ps1
-```
-
-The installer uses `python` for the 64-bit environment and `py -3.12-32` to find the 32-bit interpreter. If needed, pass the Python executables explicitly with `-Python64` and `-Python32`. Pass the directory containing `multisim.exe` with `-MultisimPath` for a custom installation. `-InstallDir` selects a different output directory, preferably outside the checkout.
-
-By default the script creates three environments under `.install` and writes two local configuration files. Each environment installs the exact runtime versions listed in [requirements](requirements/) and runs `pip check`. Paste the generated `multisim.client.toml` stanza into a Codex MCP configuration. For another stdio MCP client, use the same executable and arguments in that client's format. The script leaves client settings to the user and preserves an existing `multisim.local.toml`.
-
-After starting the MCP server, call `native_runtime_status` and `com_runtime_status` to check the local runtime. XML decoding is optional and uses the COM backend's [codec setup](https://github.com/yxy050208/multisim-mcp/blob/v1.3.1/mcp_server/README.md#install).
+The installer creates three isolated environments under `.install` by default. Copy the generated `multisim.client.toml` fragment into your MCP client or use its command and arguments in another stdio client. Use `-InstallDir` to change the location. Rerunning reuses environments with a valid Python architecture and version, updates pinned dependencies and the gateway, and preserves existing `multisim.local.toml`.
 
 ### Installation diagnosis
 
-```powershell
-.\.install\gateway\Scripts\multisim-unified-mcp.exe --config .install\multisim.local.toml --doctor
-```
-
-The command checks Python architecture, required modules, backend startup, the native Multisim build profile, and COM worker compatibility and registration. It prints a JSON report using fixed diagnostic codes and omits local paths. It uses read-only runtime checks and leaves license activation to the Multisim application.
-
-Use `gateway_status` after connecting to the MCP. If a backend cannot start or its connection closes, the other backend keeps serving its tools. The status reports which backend needs attention. Fix its installation or configuration and restart the gateway to load it again.
+Run the [diagnostic command](#install-and-diagnose) for a shareable JSON report. It checks Python, backend startup, the Native build and F5 module, and COM worker compatibility and registration without opening a circuit or activating a license. After connecting, `gateway_status` reports connection state even during simulation. Restart the gateway after fixing an installation or configuration problem. One backend can keep serving tools if the other becomes unavailable.
 
 ### First circuit
 
-1. Make a working copy of one of your `.ms14` circuits. Call `native_open_circuit` with `{"source_path":"ABSOLUTE_PATH_TO_YOUR_CIRCUIT.ms14"}`, substituting the file's absolute path. Use `native_create_circuit` to start from a blank sheet.
-2. Search for a part with `native_search_library` and `{"query":"74LS153N"}`. For this part, `TTL / 74LS` is one exact match. Pass the returned name, group and family to `native_place_component`, choose a free position on the sheet, and inspect the returned pins before wiring. Remove an unwired trial part before running the existing circuit.
-3. Use [live F5 logic verification](#verify-live-f5-logic) for a circuit with supported switches and indicators. For a saved-circuit analysis, proceed to step 4.
-4. Call `handoff_to_com` with the active document's absolute `.ms14` path. After the handoff succeeds, call `com_enum_outputs`, then pass one returned voltage signal as `output_name` to `com_run_transient`. Disconnect COM before resuming native edits.
-
-The gateway exposes a focused set of tools. It preserves upstream tool schemas and results and serializes tool calls. An interactive simulation can continue after its start request returns. Each backend manages its own Multisim session.
+1. Use `native_create_circuit` for a blank project. Before editing an existing project, use `native_open_copy` with an unused absolute output path. To hand that copy to COM, close it and reopen the copy with `native_open_circuit` first.
+2. Find exact parts with `native_search_library`. For example, `74LS153N` has a `TTL / 74LS` entry. Pass the name, group, and family to `native_place_component`, then wire the actual pins.
+3. Inspect pins and nets with `native_get_circuit_state`, review the native netlist and warnings with `native_check_netlist`, and inspect layout separately with `native_check_layout`. If a check invalidates handles, use the returned replacements for later edits. Use `native_export_image` to export the schematic.
+4. Check digital logic using [interactive simulation](#verify-live-f5-logic). For numerical analysis, stop interactive simulation and use `native_run_analysis` for operating point or transient analysis, or `native_run_ac_sweep` for AC. Pass the returned `raw_path` to `native_read_waveform` to read samples. See the COM handoff instructions below when needed.
 
 ### Verify live F5 logic
 
-Call `native_verify_f5_cases` once with the input and expected indicator states for each row.
+Provide one input combination and expected indicator states per row to `native_verify_f5_cases`. See [F5 input](#f5-input). Use the same switch and indicator names throughout. The tool waits a specified simulated interval after switching inputs and takes one sample. That interval does not establish that the circuit is stable. A timeout stops the remaining cases. Uncertain indicator readings are marked `indeterminate`.
+
+The supported parts are Multisim's built-in `INTERACTIVE_DIGITAL_CONSTANT` and `PROBE_DIG_RED`. The tool restores the switches and stops a run it started. Resume or stop an already-paused run first. For individual operations, use `native_control_interactive`, `native_set_logic_input`, and `native_read_logic_indicators`. These call Multisim's native events without moving the desktop pointer or typing keys.
+
+<details>
+<summary>Manual setup, circuit handoff, and regression tests</summary>
+
+#### Manual installation
+
+Install the matching [requirements](requirements/) lock in each Python environment, then install the gateway package. See the [manual commands](#manual-install). Copy [multisim.example.toml](multisim.example.toml) to `multisim.local.toml`, fill in absolute interpreter paths, and use `MULTISIM_NATIVE_INSTALL` under `[native.env]` for a custom Multisim directory. Point the client to the config with `multisim-unified-mcp --config`.
+
+#### Hand a native document to COM
+
+Use COM for a capability that needs it, a cross-check, or an explicit request. Pass the absolute path of the active `.ms14` that may be saved in place to `handoff_to_com`. The gateway checks the path, stops interactive simulation, saves, releases Native, connects COM, and opens the same file. On success it reports `saved_path` and `opened_path`. On failure, check `stage`, the confirmation fields, and `recovery`. A cancelled or timed-out step may have taken effect. Inspect the document and session before retrying. Disconnect COM before editing again.
+
+Find voltage outputs with `com_enum_outputs` and use tools such as `com_run_transient` to measure them. See the [COM upstream install guidance](https://github.com/yxy050208/multisim-mcp/blob/v1.3.1/mcp_server/README.md#install) for optional XML conversion.
+
+#### Verify saved logic cases
+
+Call `com_verify_logic_cases` with saved `.ms14` cases whose inputs are held constant. See [COM input](#com-input). Each case uses a single transient run and compares the final sample at the same time across channels. Default TTL thresholds are ≤0.8 V for low and ≥2.0 V for high. In-between values fail. Set `duration_s` to cover propagation. Use this for combinational logic and validate timing separately. A custom COM server without synchronized multi-channel sampling can still verify one output per case.
+
+#### Attach to the schematic editor
+
+If several editors are open, use `native_attach` with the desired PID and document index. Inspect the project list with `native_list_projects`. Editor discovery skips `/SimServer` instances.
+
+#### Regression test
+
+[CI](.github/workflows/ci.yml) runs unit and MCP protocol tests without Multisim. The real regression uses temporary copies of user-supplied fixtures and requires an activated local installation. Close other Multisim editor windows and follow the [test commands and fixture guide](#tests).
+
+</details>
+
+## Shared examples
+
+### Install and diagnose
+
+```powershell
+.\install.ps1
+.\.install\gateway\Scripts\multisim-unified-mcp.exe --config .install\multisim.local.toml --doctor
+```
+
+### Manual install
+
+Run each command in its matching environment / 在对应环境运行。
+
+```powershell
+# 64-bit gateway
+python -m pip install --no-deps --only-binary=:all: -r requirements/gateway.txt
+python -m pip install --no-deps .
+# 32-bit Native
+python -m pip install --no-deps --only-binary=:all: -r requirements/native.txt
+# 32-bit COM
+python -m pip install --no-deps --only-binary=:all: -r requirements/com.txt
+# All three / 三个环境均执行
+python -m pip check
+```
+
+### F5 input
 
 ```json
 {
@@ -179,36 +155,7 @@ Call `native_verify_f5_cases` once with the input and expected indicator states 
 }
 ```
 
-Use the same input and indicator references in every row. The tool waits for the configured interval on the native F5 simulation clock, then records the measured indicator states and compares them with the expected bits. Each result includes the settling baseline and sample time. The wall-clock limit per row is `settle_timeout_s` (default 5 seconds). If the clock fails to advance far enough, the row reports a timeout and the remaining rows are skipped.
-
-The tool restores the switch states it recorded at the start. It stops F5 if it started the run, and leaves an already-running simulation running. A paused simulation needs to be resumed or stopped before calling the tool.
-
-For individual interactions, start F5 and use the separate input and indicator tools.
-
-Start F5 with `native_control_interactive`, set the input using `native_set_logic_input` with `{"component_ref":"Cin","state":1}`, and read the outputs after propagation using `native_read_logic_indicators` with `{"component_refs":["S","Cout"]}`. Use the exact reference names from `native_get_circuit_state`. Repeating a requested input level leaves the switch at that level. The indicator tool returns `state` and `lit` from the Multisim runtime, with `null` if the graphic properties disagree.
-
-Live logic I/O supports stock `INTERACTIVE_DIGITAL_CONSTANT` switches and `PROBE_DIG_RED` indicators on the tested Multisim 14.3.1500.0 runtime. The worker calls the component's internal event handler and reads its runtime graphics through the native backend. These calls do not move the desktop pointer or send physical key presses.
-
-<details>
-<summary>Manual setup, circuit handoff and regression tests</summary>
-
-#### Manual installation
-
-`install.ps1` is a convenience wrapper for setup. Clients launch the installed `multisim-unified-mcp` executable directly.
-
-To install manually, create the three Python environments and install each matching lock file from [requirements](requirements/) using that environment's Python. For example, run `python -m pip install --no-deps --only-binary=:all: -r requirements/gateway.txt` in the gateway environment, then run `python -m pip install --no-deps .` there. Use `native.txt` and `com.txt` in the two 32-bit environments and run `python -m pip check` in each environment.
-
-Copy [multisim.example.toml](multisim.example.toml) to `multisim.local.toml` and fill in the absolute backend Python paths. For a custom Multisim installation, set `MULTISIM_NATIVE_INSTALL` in `[native.env]`. Configure your stdio MCP client to launch the gateway executable with `--config` and the absolute path to that TOML file.
-
-#### Hand a native document to COM
-
-Call `handoff_to_com` with `{"path":"ABSOLUTE_PATH_TO_ADDER.ms14"}`, substituting the active document's absolute path. The gateway checks that the selected native source is this exact file before stopping F5. It then saves and releases the native session, connects COM, and opens the saved file. The full sequence runs under the gateway's tool-call lock.
-
-Check `ok` and `stage` in the response. A successful result has `stage: "complete"` and includes `saved_path` and `opened_path`. If either backend cannot be reached, the handoff stops at `check_backends` before touching the native document. On later failures, the receipt reports the step and whether the native session was released. If the save succeeded and the COM open failed, use the returned `saved_path` to retry the COM open.
-
-#### Verify saved logic cases
-
-With COM connected, call `com_verify_logic_cases` to verify a table of saved `.ms14` circuits in one request. Prepare each case's input state in its circuit file before running the tool. Find the voltage output names with `com_enum_outputs`.
+### COM input
 
 ```json
 {
@@ -221,25 +168,15 @@ With COM connected, call `com_verify_logic_cases` to verify a table of saved `.m
 }
 ```
 
-Each output includes the last sampled voltage, timestamp, expected and observed bits, and a verdict. At the default TTL thresholds, at most 0.8 V is low and at least 2.0 V is high. An in-between voltage is indeterminate and fails the check. Set `low_max_v`, `high_min_v` and `duration_s` for a different circuit. The tool leaves the COM session on the last case it opened.
-
-#### Attach to the schematic editor
-
-The native worker excludes headless Multisim processes launched with `/SimServer`. They remain available to the simulator and COM backend. If several schematic editors are open, use `native_attach` with the desired editor's PID and document index. Use `native_list_projects` after attaching to inspect the indexed documents. Index 0 is the first document in that process.
-
-#### Regression test
-
-[GitHub Actions](.github/workflows/ci.yml) runs the backend isolation tests on pushes to `main` and pull requests. The tests simulate backend startup failures and a lost connection. Run them locally with `python -m unittest discover -s tests -p test_backend_isolation.py` from the gateway environment.
-
-Install the gateway and configure both backends as above. Close Multisim schematic editor windows so the test can exercise isolated startup. The script uses temporary copies of the projects you supply.
-
-- `--adder` is a full-adder `.ms14` with native `A`, `B`, and `Cin` interactive switches, `S` and `Cout` red logic indicators, and two voltage outputs named `V(OutProbe)` and `V(OutProbe1)`. The reference `U3` must be free for a temporary placement.
-- `--cases-dir` is a directory of eight saved native `.ms14` input cases, named `E5_000.ms14` through `E5_111.ms14`. Each uses the same two voltage output names and starts with the named input bits.
+### Tests
 
 ```powershell
+python -m unittest discover -s tests -v
 .\.install\gateway\Scripts\python.exe tests\smoke_multisim.py --config .install\multisim.local.toml --adder $adderFile --cases-dir $caseDirectory
 ```
 
-Set `$adderFile` and `$caseDirectory` to your local test inputs. The test exercises a native open with `/SimServer` running, master-library placement, live F5 for all eight truth-table rows, handoff path validation, and COM measurements including a deliberately incorrect expectation. It needs a licensed local Multisim installation and your own fixture files.
-
-</details>
+| Fixture / 夹具 | Requirements / 要求 |
+| --- | --- |
+| `--adder` | Full adder / 全加器 `.ms14` with switches / 开关 `A`, `B`, `Cin`; indicators / 指示灯 `S`, `Cout`; outputs / 电压输出 `V(OutProbe)`, `V(OutProbe1)`; free reference / 空闲位号 `U3`. |
+| `--cases-dir` | Eight saved input combinations / 八种已保存的输入组合. Use / 文件名为 `E5_000.ms14`–`E5_111.ms14`, with the same voltage outputs / 电压输出名相同. |
+| `--analog` (optional / 可选) | A wired analog `.ms14` with a source and ground for checking layout, netlist, image export, and numerical analysis. 用带电源和地的模拟电路检查布局、网表、导图及数值分析。 |

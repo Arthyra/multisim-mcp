@@ -2,32 +2,28 @@
 
 **简体中文** · [English](README.en.md)
 
-一个连接本机 NI Multisim 的 MCP 服务。通过同一个 stdio 入口，可以编辑原生原理图、在 F5 模式下验证数字逻辑，并对已保存的工程运行 COM 仿真。
-
-本项目参考并使用两个上游作为后端。[multisim-native-mcp](https://github.com/y-wi/multisim-native-mcp) 提供原生原理图与 F5 操作，[Multisim MCP](https://github.com/yxy050208/multisim-mcp) 提供 COM 仿真。
-
-## 快速开始
+让 AI 助手通过本地 MCP 在 NI Multisim 中搭建和修改原理图、操控交互仿真，并用 Multisim 实测结果核对电路。
 
 [打开快速开始](QUICKSTART.md#简体中文)
 
-## 功能
+## 能做什么
 
-| 工作流程 | 支持的操作 |
-| --- | --- |
-| 原理图编辑 | 新建或打开 `.ms14`，从主数据库放置原生元件、连接引脚、标注网络并保存。 |
-| F5 交互仿真 | 设置逻辑开关，读实际灯态，按仿真时间验证整张真值表。 |
-| COM 仿真 | 打开交接的同一份工程，运行直流、交流或瞬态分析，批量验证已保存的逻辑用例。 |
+- **画图并检查原理图。** 从 Multisim 主数据库查找指定型号，放置元件、接线并保存为可编辑的 `.ms14`。用原生网表检查电气连接，再单独检查图面碰撞，必要时导出电路图。
+- **自动核对数字电路。** 运行 Multisim 的交互仿真（手动启动的快捷键是 F5），逐组拨动开关，在指定仿真时间后读取实际灯态并对照真值表，最后恢复开关原位。
+- **测电压、看波形。** 优先用 Native 后端运行直流工作点、瞬态或交流分析并读取结果。需要 COM 专用能力、跨后端复核或明确要求用 COM 时，可以把当前工程保存后交给 COM，网关会核对两个后端操作的是同一份文件。
 
-## 已测试的配置
+## 兼容性与限制
 
-Windows 上的 32 位 Multisim `14.3.1500.0`，原生后端 `v0.5.2`，COM 后端 `v1.3.1`。完整回归使用 64 位 Python 3.13 运行网关，两个后端均使用 32 位 CPython 3.12。F5 逻辑操作支持实测的 `INTERACTIVE_DIGITAL_CONSTANT` 和 `PROBE_DIG_RED`。
+- 实机验证环境为 Windows 上的 32 位 NI Multisim `14.3.1500.0`。Native 固定为 `0.5.2`，COM 固定为 `1.3.1`。标准安装使用一个 64 位网关和两个 32 位 CPython 3.12 后端环境。其他 Multisim 构建未经验证，Native 会检查版本和关键模块。
+- 自动拨开关和读灯支持 `INTERACTIVE_DIGITAL_CONSTANT` 与 `PROBE_DIG_RED`。真值表工具按固定仿真时间采样，时序特性需单独验证。
+- COM 数值分析通过 Windows 自动化接口执行。保存用例的逻辑判定适用于输入保持固定的组合电路。Native 和 COM 各自在独立进程中运行，通过一个 stdio MCP 入口接入。
 
-## v0.5.0 预览版
+## 文档与上游
 
-- 新增 `native_verify_f5_cases`，按仿真时钟逐行采样并恢复原开关状态。
-- 实测通过全加器 F5 八组输入、同一工程交接和 COM 八组用例。两种验证均能识别错误的预期值。
-- 提供锁定依赖的三环境安装器、独立诊断和后端故障隔离。
+项目处于预览阶段。[快速开始指南](QUICKSTART.md#简体中文)包含安装、诊断与验证步骤。[Agent 工作规范](AGENTS.md)说明如何检查电路和保护原工程。
+
+[Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) 提供原生编辑、检查和仿真。[Multisim MCP](https://github.com/yxy050208/multisim-mcp) 提供 COM 数值分析。本项目增加了交互仿真的逐行真值表判定，以及同一文件的工程交接。
 
 ## 许可证
 
-网关使用 [MIT 许可](LICENSE)。本项目是独立的互操作工具，用户自行准备已授权的 Multisim 和测试工程。原生编辑和 F5 交互依赖特定版本的内部实现，相关说明见[第三方声明](THIRD_PARTY_NOTICES.md)。
+网关采用 [MIT 许可](LICENSE)。使用时需要自行安装并激活 Multisim。Frida、非公开接口和上游依赖见[第三方声明](THIRD_PARTY_NOTICES.md)。

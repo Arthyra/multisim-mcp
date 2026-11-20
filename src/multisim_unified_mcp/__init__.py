@@ -10,10 +10,12 @@ from pathlib import Path
 import sys
 import tomllib
 
+from anyio import CancelScope
 from mcp import types
 from mcp.shared.exceptions import MCPError
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
+from pydantic import ValidationError
 
 from .backends import Backend, start_backends
 from .f5_cases import VERIFY_F5_TOOL, verify_f5_cases
@@ -45,6 +47,14 @@ TOOLS = {
         "native_export_interactive_image",
         "native_set_logic_input",
         "native_read_logic_indicators",
+        "native_open_copy",
+        "native_get_parameters",
+        "native_check_netlist",
+        "native_check_layout",
+        "native_export_image",
+        "native_run_analysis",
+        "native_run_ac_sweep",
+        "native_read_waveform",
     ),
     "com": (
         "runtime_status",
@@ -62,6 +72,18 @@ TOOLS = {
     ),
 }
 
+REQUIRED_TOOLS = {
+    "native": ("native_runtime_status", "native_open_circuit", "native_get_circuit_state"),
+    "com": ("runtime_status", "connect", "open_circuit"),
+}
+
+WORKFLOW_TOOLS = {
+    VERIFY_F5_TOOL.name: {
+        "native": ("native_interactive_status", "native_control_interactive", "native_f5_logic_snapshot"),
+    },
+    VERIFY_LOGIC_TOOL.name: {"com": ("open_circuit",)},
+}
+
 
 STATUS_TOOL = types.Tool(
     name="gateway_status",
@@ -72,10 +94,8 @@ STATUS_TOOL = types.Tool(
 
 def configured_backends(config: dict) -> dict[str, Backend]:
     return {
-        "native": Backend("native", config.get("native"), (
-            *TOOLS["native"], "native_handoff_context", "native_f5_logic_snapshot",
-        )),
-        "com": Backend("com", config.get("com"), TOOLS["com"]),
+        role: Backend(role, config.get(role), required)
+        for role, required in REQUIRED_TOOLS.items()
     }
 
 
@@ -103,39 +123,44 @@ async def serve(backends: dict[str, Backend]) -> None:
         call_lock = asyncio.Lock()
 
         async def list_tools(_context, _params):
-            available = [tool for name, tool in tools.items() if routes[name][0].session is not None]
+            available = [tool for name, tool in tools.items() if routes[name][0].available()]
             return types.ListToolsResult(tools=[*builtins.values(), *available])
 
         async def call_tool(_context, params):
+            arguments = params.arguments or {}
+            if params.name == STATUS_TOOL.name:
+                statuses = {}
+                for name, backend in backends.items():
+                    state = backend.status()
+                    statuses[name] = {**state, "reachable": state["available"]}
+                return tool_result(statuses)
             # Both backends work on stateful Multisim sessions.
             async with call_lock:
-                arguments = params.arguments or {}
-                if params.name == STATUS_TOOL.name:
-                    reachable = await asyncio.gather(*(backend.ping() for backend in backends.values()))
-                    return tool_result({
-                        name: {**backend.status(), "reachable": connected}
-                        for (name, backend), connected in zip(backends.items(), reachable)
-                    })
-                if params.name == VERIFY_LOGIC_TOOL.name:
-                    if not await backends["com"].ping():
-                        return tool_result({"error": "COM backend unavailable", "backend": "com",
-                                            "stage": backends["com"].stage}, is_error=True)
-                    return tool_result(await verify_logic_cases(backends["com"], arguments))
-                if params.name == HANDOFF_TOOL.name:
-                    return tool_result(await handoff_to_com(backends["native"], backends["com"], arguments))
-                if params.name == VERIFY_F5_TOOL.name:
-                    if not await backends["native"].ping():
-                        return tool_result({"error": "Native backend unavailable", "backend": "native",
-                                            "stage": backends["native"].stage}, is_error=True)
-                    return tool_result(await verify_f5_cases(backends["native"], arguments))
+                try:
+                    if params.name == HANDOFF_TOOL.name:
+                        return tool_result(await handoff_to_com(backends["native"], backends["com"], arguments))
+                    for role, required in WORKFLOW_TOOLS.get(params.name, {}).items():
+                        backend = backends[role]
+                        missing = [name for name in required if not backend.supports(name)]
+                        if missing:
+                            return tool_result({
+                                "error": f"{role} workflow tools unavailable", "backend": role,
+                                "stage": backend.stage, "missing_tools": missing,
+                            }, is_error=True)
+                    if params.name == VERIFY_LOGIC_TOOL.name:
+                        return tool_result(await verify_logic_cases(backends["com"], arguments))
+                    if params.name == VERIFY_F5_TOOL.name:
+                        return tool_result(await verify_f5_cases(backends["native"], arguments))
+                except (ValidationError, ValueError) as error:
+                    return tool_result({"error": str(error), "code": "invalid_arguments"}, is_error=True)
                 if params.name not in routes:
                     return tool_result({"error": f"Unknown tool: {params.name}"}, is_error=True)
                 backend, upstream = routes[params.name]
                 try:
-                    return await backend.call_tool(
-                        upstream, params.arguments, read_timeout_seconds=600,
-                    )
-                except (RuntimeError, MCPError) as error:
+                    # Do not release the shared lock while a dispatched write is in flight.
+                    with CancelScope(shield=True):
+                        return await backend.call_tool(upstream, params.arguments, read_timeout_seconds=600)
+                except (RuntimeError, MCPError, TimeoutError) as error:
                     return tool_result({"error": str(error), "backend": backend.name,
                                         "stage": backend.stage}, is_error=True)
 
@@ -147,13 +172,13 @@ async def serve(backends: dict[str, Backend]) -> None:
             "multisim-mcp",
             version=version("multisim-unified-mcp"),
             instructions=(
-                "Use native tools for library search, schematic editing and interactive simulation. "
-                "Use handoff_to_com to stop, save and release the active native document, then open "
-                "that exact saved file in COM. Close the COM connection before native edits. "
-                "Use gateway_status for backend availability. Healthy backend tools remain usable "
-                "when the other backend cannot start. "
-                "Use native_verify_f5_cases for a complete F5 truth table, or set stock logic "
-                "inputs and read red logic indicators with the individual tools."
+                "Follow the requested circuit, textbook method and part models. Use a working copy "
+                "before editing an original. Use Native for editing and supported simulations. "
+                "Verify electrical connectivity with native nets or a netlist and inspect layout separately. "
+                "Use native_verify_f5_cases to compare real indicators with the expected truth table. "
+                "Use native_run_analysis or native_run_ac_sweep and native_read_waveform for numerical analysis. "
+                "Use handoff_to_com when COM is required or for a cross-check. It stops, saves and releases "
+                "the active file and opens it in COM. Disconnect COM before returning to Native editing."
             ),
             on_list_tools=list_tools,
             on_call_tool=call_tool,

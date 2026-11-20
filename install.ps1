@@ -7,25 +7,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Keep our stage-specific messages when the parent PowerShell enables native-command errors.
+$PSNativeCommandUseErrorActionPreference = $false
 
-if (-not $Python32) {
-    $launcher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
-    if (-not $launcher) {
-        throw 'Install 32-bit CPython 3.12 and supply its python.exe with -Python32.'
+function Resolve-Python {
+    param([string]$Command, [string]$Check)
+    if (-not $Command) { return }
+    $candidate = Get-Command $Command -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $candidate) { return }
+    $path = & $candidate.Source -I -c "import struct, sys; sys.exit(1) if not ($Check) else print(sys.executable)" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $path) {
+        return $path
     }
-    $Python32 = & $launcher.Source -3.12-32 -c 'import sys; print(sys.executable)'
-    if ($LASTEXITCODE -ne 0 -or -not $Python32) {
-        throw 'The Python launcher could not find 32-bit CPython 3.12. Pass -Python32 explicitly.'
-    }
-}
-
-& $Python64 -c 'import struct, sys; sys.exit(not (struct.calcsize("P") == 8 and sys.version_info >= (3, 11)))'
-if ($LASTEXITCODE -ne 0) {
-    throw 'The gateway requires 64-bit Python 3.11 or newer. Pass its python.exe with -Python64.'
-}
-& $Python32 -c 'import struct, sys; sys.exit(not (struct.calcsize("P") == 4 and sys.version_info[:2] == (3, 12) and sys.implementation.name == "cpython"))'
-if ($LASTEXITCODE -ne 0) {
-    throw 'The backends require 32-bit CPython 3.12. Pass its python.exe with -Python32.'
 }
 
 $MultisimPath = [IO.Path]::GetFullPath($MultisimPath)
@@ -38,16 +32,42 @@ if ($build -ne '14.3.1500.0') {
     throw "Detected Multisim build $build. This installer supports the tested build 14.3.1500.0."
 }
 
+$check64 = 'struct.calcsize("P") == 8 and sys.version_info >= (3, 11)'
+$check32 = 'struct.calcsize("P") == 4 and sys.version_info[:2] == (3, 12) and sys.implementation.name == "cpython"'
+$launcher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $Python32 -and $launcher) {
+    $Python32 = & $launcher.Source -3.12-32 -I -c 'import sys; print(sys.executable)' 2>$null
+    if ($LASTEXITCODE -ne 0) { $Python32 = $null }
+}
+$gatewayInterpreter = Resolve-Python $Python64 $check64
+if (-not $gatewayInterpreter -and -not $PSBoundParameters.ContainsKey('Python64') -and $launcher) {
+    $registered = & $launcher.Source -3.13-64 -I -c 'import sys; print(sys.executable)' 2>$null
+    if ($LASTEXITCODE -eq 0) { $gatewayInterpreter = Resolve-Python $registered $check64 }
+}
+$backendInterpreter = Resolve-Python $Python32 $check32
+if (-not $gatewayInterpreter) {
+    throw 'The gateway requires 64-bit Python 3.11 or newer (tested with 3.13). Pass its python.exe with -Python64.'
+}
+if (-not $backendInterpreter) {
+    throw 'The backends require 32-bit CPython 3.12. Install it or pass its python.exe with -Python32.'
+}
+
 $InstallDir = [IO.Path]::GetFullPath($InstallDir)
 New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 
 function Install-Environment {
-    param([string]$Name, [string]$Interpreter)
+    param([string]$Name, [string]$Interpreter, [string]$Check)
     $directory = Join-Path $InstallDir $Name
-    Write-Host "Installing $Name"
-    & $Interpreter -m venv $directory | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Could not create the $Name Python environment." }
     $executable = Join-Path $directory 'Scripts\python.exe'
+    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
+        Write-Host "Creating $Name"
+        & $Interpreter -I -m venv $directory | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw "Could not create the $Name Python environment." }
+    }
+    if (-not (Resolve-Python $executable $Check)) {
+        throw "The existing $Name environment has an invalid Python interpreter. Use a fresh -InstallDir."
+    }
+    Write-Host "Installing $Name dependencies"
     $lock = Join-Path $PSScriptRoot "requirements\$Name.txt"
     & $executable -m pip --disable-pip-version-check --timeout 45 install --no-deps --only-binary=:all: -r $lock | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Could not install $Name. See the pip error above." }
@@ -60,9 +80,9 @@ function Install-Environment {
     return $executable
 }
 
-$native = Install-Environment -Name 'native' -Interpreter $Python32
-$com = Install-Environment -Name 'com' -Interpreter $Python32
-$gatewayPython = Install-Environment -Name 'gateway' -Interpreter $Python64
+$native = Install-Environment -Name 'native' -Interpreter $backendInterpreter -Check $check32
+$com = Install-Environment -Name 'com' -Interpreter $backendInterpreter -Check $check32
+$gatewayPython = Install-Environment -Name 'gateway' -Interpreter $gatewayInterpreter -Check $check64
 $gateway = Join-Path (Split-Path -Parent $gatewayPython) 'multisim-unified-mcp.exe'
 
 $config = Join-Path $InstallDir 'multisim.local.toml'
@@ -84,6 +104,8 @@ if (-not (Test-Path -LiteralPath $config)) {
         "MULTISIM_MCP_WORKER_PYTHON = $(ConvertTo-Json -Compress -InputObject $com)"
     ) -join [Environment]::NewLine
     [IO.File]::WriteAllText($config, $configText + [Environment]::NewLine, $utf8)
+} else {
+    Write-Host "Preserving the existing gateway configuration. Verify its interpreter paths if you moved the install directory."
 }
 $clientText = @(
     '[mcp_servers.multisim_unified]'

@@ -89,6 +89,8 @@ async def verify_com(session, cases):
     ]
     result = await call(session, "com_verify_logic_cases", cases=batch)
     assert result["passed"] and result["passed_count"] == 8, result
+    for row in result["cases"]:
+        assert abs(row["outputs"][OUTPUTS[0]]["time_s"] - row["outputs"][OUTPUTS[1]]["time_s"]) < 1e-12, row
     wrong = {"name": "wrong-000", "path": str(cases["000"]), "expected": {OUTPUTS[0]: 1}}
     result = await call(session, "com_verify_logic_cases", cases=[wrong])
     assert not result["passed"], result
@@ -96,7 +98,35 @@ async def verify_com(session, cases):
     print("COM measured the saved handoff file, passed 8/8 cases and rejected a false expectation.", flush=True)
 
 
-async def run(config, adder, cases_dir):
+async def check_native_analysis(session, source, workspace):
+    scratch = workspace / "AnalogRegression.ms14"
+    await call(session, "native_open_copy", source_path=str(source.resolve()), output_path=str(scratch))
+    try:
+        circuit = await call(session, "native_get_circuit_state")
+        part = circuit["components"][0]["ref"]
+        parameters = await call(session, "native_get_parameters", component_ref=part)
+        assert parameters["info"], parameters
+        layout = await call(session, "native_check_layout")
+        assert layout["wire_count"] > 0 and isinstance(layout["issues"], list), layout
+        netlist = await call(session, "native_check_netlist")
+        assert netlist["content"] and isinstance(netlist["diagnostics"], list), netlist
+        png = workspace / "analog.png"
+        await call(session, "native_export_image", output_path=str(png), fit_content=True)
+        assert png.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+        transient = await call(session, "native_run_analysis", analysis="tran", step=1e-5, stop=1e-3)
+        assert transient["plot"] == "Transient Analysis" and transient["points"] > 1, transient
+        trace = await call(session, "native_read_waveform", raw_path=transient["raw_path"], limit=5)
+        assert len(trace["rows"]) > 1 and trace["plot"] == transient["plot"], trace
+        operating_point = await call(session, "native_run_analysis")
+        assert operating_point["plot"] == "DC Operating Point" and operating_point["points"] > 0, operating_point
+        ac = await call(session, "native_run_ac_sweep", sweep="lin", points=5, start_hz=10, stop_hz=100)
+        assert ac["plot"] == "AC Analysis" and ac["points"] > 1, ac
+        print("Native checked layout/netlist, exported a PNG and ran OP, transient and AC analyses.", flush=True)
+    finally:
+        await call(session, "native_close_copy", save_changes=False)
+
+
+async def run(config, adder, cases_dir, analog=None):
     gateway = StdioServerParameters(
         command=str(Path(sys.executable).with_name("multisim-unified-mcp.exe")),
         args=["--config", str(config.resolve(strict=True))],
@@ -116,6 +146,8 @@ async def run(config, adder, cases_dir):
             runtime = await call(session, "native_runtime_status")
             if runtime["processes"]:
                 raise RuntimeError("Close schematic editor windows before the isolated startup test")
+            if analog:
+                await check_native_analysis(session, analog, workspace)
             await ensure_simserver(session, cases["000"])
             opened = await call(session, "native_open_circuit", source_path=str(project))
             assert Path(opened["source_path"]) == project and not opened.get("attached_existing"), opened
@@ -173,5 +205,6 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--adder", type=Path, required=True, help="Full-adder .ms14 with F5 inputs")
     parser.add_argument("--cases-dir", type=Path, required=True, help="Directory with E5_000.ms14 through E5_111.ms14")
+    parser.add_argument("--analog", type=Path, help="Optional wired analog .ms14, such as an RC circuit with a source")
     args = parser.parse_args()
-    asyncio.run(run(args.config, args.adder, args.cases_dir))
+    asyncio.run(run(args.config, args.adder, args.cases_dir, args.analog))

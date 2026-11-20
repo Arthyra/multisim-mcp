@@ -16,7 +16,7 @@ from mcp.server.stdio import stdio_server
 from multisim_unified_mcp import TOOLS
 
 
-async def fake_backend(role: str, stop_on_call: bool):
+async def fake_backend(role: str, stop_on_call: bool, omit: str, wait_for: str):
     calls = []
     names = TOOLS[role]
     if role == "native":
@@ -24,12 +24,17 @@ async def fake_backend(role: str, stop_on_call: bool):
 
     async def list_tools(_context, _params):
         return types.ListToolsResult(tools=[
-            types.Tool(name=name, input_schema={"type": "object"}) for name in names
+            types.Tool(name=name, input_schema={"type": "object"}) for name in names if name != omit
         ])
 
     async def call_tool(_context, params):
         if stop_on_call:
             os._exit(3)
+        if wait_for and role == "native":
+            marker = Path(wait_for)
+            marker.with_suffix(".started").touch()
+            while not marker.exists():
+                await asyncio.sleep(0.02)
         calls.append(params.name)
         return types.CallToolResult(content=[], structured_content={"calls": calls})
 
@@ -39,14 +44,17 @@ async def fake_backend(role: str, stop_on_call: bool):
 
 
 @asynccontextmanager
-async def gateway(*, missing=None, crashes=None):
+async def gateway(*, missing=None, crashes=None, omit=None, waits=None):
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         config = root / "config.toml"
         settings = []
         for role in TOOLS:
             command = str(root / "absent-python.exe") if role == missing else sys.executable
-            args = [str(Path(__file__).resolve()), "backend", role, str(role == crashes)]
+            args = [
+                str(Path(__file__).resolve()), "backend", role, str(role == crashes),
+                omit or "", str(waits) if waits else "",
+            ]
             settings.extend([
                 f"[{role}]", f"command = {json.dumps(command)}", f"args = {json.dumps(args)}", "",
             ])
@@ -95,12 +103,62 @@ class BackendIsolationTest(unittest.IsolatedAsyncioTestCase):
             state = (await session.call_tool("gateway_status")).structured_content
             self.assertFalse(state["native"]["available"])
             self.assertTrue(state["com"]["reachable"])
+            names = {tool.name for tool in (await session.list_tools()).tools}
+            self.assertNotIn("native_runtime_status", names)
+            self.assertIn("com_runtime_status", names)
             result = await session.call_tool("com_runtime_status")
             self.assertEqual(result.structured_content, {"calls": ["runtime_status"]})
+
+    async def test_missing_optional_tool_leaves_rest_of_native_available(self):
+        async with gateway(omit="native_check_layout") as session:
+            names = {tool.name for tool in (await session.list_tools()).tools}
+            self.assertNotIn("native_check_layout", names)
+            self.assertTrue({"native_place_component", "native_check_netlist", "native_read_waveform"} <= names)
+            response = await session.call_tool("native_check_layout")
+            self.assertTrue(response.is_error)
+            response = await session.call_tool("native_check_netlist")
+            self.assertEqual(response.structured_content, {"calls": ["native_check_netlist"]})
+
+    async def test_missing_workflow_dependency_has_actionable_error(self):
+        async with gateway(omit="native_f5_logic_snapshot") as session:
+            result = await session.call_tool("native_verify_f5_cases", {
+                "cases": [{"name": "one", "inputs": {"A": 1}, "expected": {"S": 1}}],
+            })
+            self.assertTrue(result.is_error)
+            self.assertEqual(result.structured_content["missing_tools"], ["native_f5_logic_snapshot"])
+
+    async def test_missing_core_interface_disables_only_its_backend(self):
+        async with gateway(omit="native_get_circuit_state") as session:
+            state = (await session.call_tool("gateway_status")).structured_content
+            self.assertFalse(state["native"]["available"])
+            self.assertEqual(state["native"]["missing_tools"], ["native_get_circuit_state"])
+            self.assertTrue(state["com"]["available"])
+
+    async def test_gateway_status_stays_available_during_stateful_call(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / "release"
+            async with gateway(waits=marker) as session:
+                long_call = asyncio.create_task(session.call_tool("native_run_analysis"))
+                try:
+                    async with asyncio.timeout(5):
+                        while not marker.with_suffix(".started").exists():
+                            await asyncio.sleep(0.02)
+                    com_call = asyncio.create_task(session.call_tool("com_open_circuit", {"path": "sample.ms14"}))
+                    try:
+                        async with asyncio.timeout(5):
+                            response = await session.call_tool("gateway_status")
+                        self.assertTrue(response.structured_content["native"]["available"])
+                        self.assertFalse(com_call.done())
+                    finally:
+                        marker.touch()
+                        await com_call
+                finally:
+                    marker.touch()
+                    await long_call
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "backend":
-        asyncio.run(fake_backend(sys.argv[2], sys.argv[3] == "True"))
+        asyncio.run(fake_backend(sys.argv[2], sys.argv[3] == "True", sys.argv[4], sys.argv[5]))
     else:
         unittest.main()

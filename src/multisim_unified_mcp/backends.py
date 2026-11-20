@@ -20,6 +20,7 @@ class Backend:
         self.missing_tools: list[str] = []
         self.tools: dict[str, types.Tool] = {}
         self.session: ClientSession | None = None
+        self.read_stream = None
         self.ready = asyncio.Event()
 
     def parameters(self) -> StdioServerParameters:
@@ -27,11 +28,24 @@ class Backend:
         if self.name == "native":
             worker = Path(__file__).resolve().with_name("native_worker.py")
             params = params.model_copy(update={"args": [*params.args, str(worker)]})
+        elif self.name == "com" and params.args == ["-m", "multisim_mcp.server"]:
+            worker = Path(__file__).resolve().with_name("com_worker.py")
+            params = params.model_copy(update={"args": [str(worker)]})
         return params
+
+    def available(self) -> bool:
+        # The stdio transport closes its send end on EOF. This does not send RPC
+        # traffic or wait behind a long-running simulator call.
+        if self.session is not None and self.read_stream.statistics().open_send_streams == 0:
+            self.mark_disconnected()
+        return self.session is not None
+
+    def supports(self, name) -> bool:
+        return self.available() and name in self.tools
 
     def status(self) -> dict:
         return {
-            "available": self.session is not None,
+            "available": self.available(),
             "stage": self.stage,
             "reason": self.reason,
             "version": self.version,
@@ -43,12 +57,14 @@ class Backend:
             params = self.parameters()
             self.stage = "launch"
             async with stdio_client(params, errlog=stderr) as streams:
+                self.read_stream = streams[0]
                 self.stage = "initialize"
                 async with ClientSession(*streams, read_timeout_seconds=20) as session:
                     info = await session.initialize()
                     self.version = info.server_info.version
                     self.stage = "discover_tools"
                     cursor = None
+                    cursors = set()
                     while True:
                         page = await session.list_tools(
                             params=types.PaginatedRequestParams(cursor=cursor) if cursor else None
@@ -57,6 +73,9 @@ class Backend:
                         cursor = page.next_cursor
                         if cursor is None:
                             break
+                        if cursor in cursors:
+                            raise RuntimeError("Repeated tool discovery cursor")
+                        cursors.add(cursor)
                     self.missing_tools = sorted(set(self.required_tools) - self.tools.keys())
                     if self.missing_tools:
                         self.reason = "missing_required_tools"
@@ -75,9 +94,11 @@ class Backend:
             self.ready.set()
 
     async def call_tool(self, name, arguments=None, *, read_timeout_seconds=60):
-        session = self.session
-        if session is None:
+        if not self.available():
             raise RuntimeError(f"{self.name} backend unavailable ({self.stage})")
+        session = self.session
+        if name not in self.tools:
+            raise RuntimeError(f"{self.name} backend does not offer {name}")
         try:
             return await session.call_tool(name, arguments, read_timeout_seconds=read_timeout_seconds)
         except MCPError as error:
@@ -86,9 +107,9 @@ class Backend:
             raise
 
     async def ping(self) -> bool:
-        session = self.session
-        if session is None:
+        if not self.available():
             return False
+        session = self.session
         try:
             await session.send_ping()
         except MCPError as error:
