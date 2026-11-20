@@ -20,7 +20,7 @@ Give an AI assistant a local MCP connection to NI Multisim so it can edit schema
 
 ## Documentation and upstream projects
 
-This project is in preview. The [quick-start guide](QUICKSTART.md#english) covers installation, diagnostics, and verification. The [agent instructions](AGENTS.md) cover circuit checks and protecting the original design.
+This project is in preview. [QUICKSTART.md](QUICKSTART.md#english) covers installation, diagnostics, and verification. [AGENTS.md](AGENTS.md) covers circuit checks and protecting the original design.
 
 [Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) provides native editing, checks, and simulation. [Multisim MCP](https://github.com/yxy050208/multisim-mcp) provides COM numerical analysis. This project adds row-by-row interactive truth-table checks and a same-file handoff between backends.
 

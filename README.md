@@ -20,7 +20,7 @@
 
 ## 文档与上游
 
-项目处于预览阶段。[快速开始指南](QUICKSTART.md#简体中文)包含安装、诊断与验证步骤。[Agent 工作规范](AGENTS.md)说明如何检查电路和保护原工程。
+项目处于预览阶段。[QUICKSTART.md](QUICKSTART.md#简体中文)包含安装、诊断与验证步骤。[AGENTS.md](AGENTS.md)说明如何检查电路和保护原工程。
 
 [Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) 提供原生编辑、检查和仿真。[Multisim MCP](https://github.com/yxy050208/multisim-mcp) 提供 COM 数值分析。本项目增加了交互仿真的逐行真值表判定，以及同一文件的工程交接。
 
