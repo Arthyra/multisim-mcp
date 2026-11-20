@@ -18,7 +18,9 @@
 
 ### 安装诊断
 
-执行[诊断命令](#install-and-diagnose)，获得可分享的 JSON 报告。它检查 Python、后端启动、Native 构建及 F5 所需模块、COM 工作进程和注册状态，测试时无需打开工程或激活软件。客户端里的 `gateway_status` 直接报告连接状态，仿真运行期间也可查询。修复配置或安装问题后重启网关。单侧后端不可用时，另一侧仍可提供已发现的工具。
+执行[诊断命令](#install-and-diagnose)，获得可分享的 JSON 报告。Native 的 `basic_ok` 表示基础运行环境通过检查，`f5_logic_compatible` 表示 F5 开关和指示器扩展通过检查，COM 的 `runtime.ok` 表示工作进程和注册状态通过检查。顶层 `ok` 表示完整安装通过，包括 COM 同步采样接口。失败项有相应的原因或检查字段。诊断无需打开工程，也不会实际运行仿真。
+
+客户端里的 `gateway_status` 用 `available` 表示后端会话仍连接，用 `reachable` 表示在 0.5 秒内收到 MCP ping 回复。后端忙时可能仍连接但未及时应答。当前会话保留启动时发现的工具列表，断线后调用该后端的工具会返回 `backend_unavailable`。修复后重启网关即可重新发现工具。
 
 ### 第一个电路
 
@@ -76,7 +78,9 @@ The installer creates three isolated environments under `.install` by default. C
 
 ### Installation diagnosis
 
-Run the [diagnostic command](#install-and-diagnose) for a shareable JSON report. It checks Python, backend startup, the Native build and F5 module, and COM worker compatibility and registration without opening a circuit or activating a license. After connecting, `gateway_status` reports connection state even during simulation. Restart the gateway after fixing an installation or configuration problem. One backend can keep serving tools if the other becomes unavailable.
+Run the [diagnostic command](#install-and-diagnose) for a shareable JSON report. Native's `basic_ok` reports base runtime compatibility and `f5_logic_compatible` covers the F5 switch and indicator extension. COM's `runtime.ok` covers worker compatibility and registration. Top-level `ok` covers the full installation, including synchronized COM sampling. Check the corresponding reason or check field on failure. Diagnostics do not open a circuit or run a simulation.
+
+In `gateway_status`, `available` means the backend session is still connected. `reachable` means it answered an MCP ping within 0.5 seconds. A busy backend can remain connected and miss that deadline. The session keeps the tool list discovered at startup. Calls to a disconnected backend return `backend_unavailable`. Restart the gateway after fixing the backend to discover its tools again.
 
 ### First circuit
 

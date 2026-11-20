@@ -87,7 +87,11 @@ WORKFLOW_TOOLS = {
 
 STATUS_TOOL = types.Tool(
     name="gateway_status",
-    description="Report backend availability and startup stage. Does not open a Multisim circuit.",
+    description=(
+        "Report backend connection state and a bounded MCP ping (reachable). "
+        "A connected backend may be busy and fail to respond within 0.5 seconds. "
+        "A ping does not test Multisim or open a circuit."
+    ),
     input_schema={"type": "object", "properties": {}, "additionalProperties": False},
 )
 
@@ -123,16 +127,18 @@ async def serve(backends: dict[str, Backend]) -> None:
         call_lock = asyncio.Lock()
 
         async def list_tools(_context, _params):
-            available = [tool for name, tool in tools.items() if routes[name][0].available()]
-            return types.ListToolsResult(tools=[*builtins.values(), *available])
+            # Keep the schemas discovered at startup valid for the entire session,
+            # including for clients that cache tools/list.
+            return types.ListToolsResult(tools=[*builtins.values(), *tools.values()])
 
         async def call_tool(_context, params):
             arguments = params.arguments or {}
             if params.name == STATUS_TOOL.name:
+                probes = await asyncio.gather(*(backend.ping(timeout=0.5) for backend in backends.values()))
                 statuses = {}
-                for name, backend in backends.items():
+                for (name, backend), responded in zip(backends.items(), probes):
                     state = backend.status()
-                    statuses[name] = {**state, "reachable": state["available"]}
+                    statuses[name] = {**state, "reachable": responded and state["available"]}
                 return tool_result(statuses)
             # Both backends work on stateful Multisim sessions.
             async with call_lock:
@@ -146,6 +152,7 @@ async def serve(backends: dict[str, Backend]) -> None:
                             return tool_result({
                                 "error": f"{role} workflow tools unavailable", "backend": role,
                                 "stage": backend.stage, "missing_tools": missing,
+                                "code": "tool_unavailable" if backend.available() else "backend_unavailable",
                             }, is_error=True)
                     if params.name == VERIFY_LOGIC_TOOL.name:
                         return tool_result(await verify_logic_cases(backends["com"], arguments))
@@ -156,13 +163,25 @@ async def serve(backends: dict[str, Backend]) -> None:
                 if params.name not in routes:
                     return tool_result({"error": f"Unknown tool: {params.name}"}, is_error=True)
                 backend, upstream = routes[params.name]
+                if not backend.available():
+                    return tool_result({
+                        "error": f"{backend.name} backend unavailable ({backend.stage})",
+                        "code": "backend_unavailable", "backend": backend.name, "stage": backend.stage,
+                    }, is_error=True)
+                if params.name not in tools:
+                    return tool_result({
+                        "error": f"{backend.name} backend does not offer {upstream}",
+                        "code": "tool_unavailable", "backend": backend.name, "stage": backend.stage,
+                    }, is_error=True)
                 try:
                     # Do not release the shared lock while a dispatched write is in flight.
                     with CancelScope(shield=True):
                         return await backend.call_tool(upstream, params.arguments, read_timeout_seconds=600)
                 except (RuntimeError, MCPError, TimeoutError) as error:
-                    return tool_result({"error": str(error), "backend": backend.name,
-                                        "stage": backend.stage}, is_error=True)
+                    code = "backend_call_failed" if backend.available() else "backend_unavailable"
+                    return tool_result({
+                        "error": str(error), "backend": backend.name, "stage": backend.stage, "code": code,
+                    }, is_error=True)
 
         def input_schema(name):
             tool = builtins.get(name) or tools.get(name)

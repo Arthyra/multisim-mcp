@@ -106,15 +106,18 @@ class Backend:
                 self.mark_disconnected()
             raise
 
-    async def ping(self) -> bool:
+    async def ping(self, *, timeout: float | None = None) -> bool:
         if not self.available():
             return False
         session = self.session
         try:
-            await session.send_ping()
+            async with asyncio.timeout(timeout):
+                await session.send_ping()
         except MCPError as error:
             if error.code == types.CONNECTION_CLOSED:
                 self.mark_disconnected()
+            return False
+        except (TimeoutError, ValueError):
             return False
         return True
 

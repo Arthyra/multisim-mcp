@@ -82,40 +82,84 @@ def com_registered() -> bool:
         return False
 
 
+async def native_f5_reason(backend: Backend) -> str | None:
+    tools = (
+        "native_interactive_status", "native_control_interactive", "native_logic_profile_status",
+        "native_f5_logic_snapshot", "native_set_logic_input", "native_read_logic_indicators",
+    )
+    if not all(backend.supports(name) for name in tools):
+        return "missing_f5_tools"
+    try:
+        compatible = (await backend_result(backend, "native_logic_profile_status")).get("compatible")
+    except (RuntimeError, MCPError):
+        return "f5_profile_probe_failed"
+    if compatible is True:
+        return None
+    if compatible is False:
+        return "f5_profile_incompatible"
+    return "f5_profile_probe_failed"
+
+
+async def native_report(backend: Backend) -> dict:
+    try:
+        if not backend.available():
+            return {
+                "ok": False, "reason": "backend_unavailable",
+                "basic_ok": False, "basic_reason": "backend_unavailable",
+                "f5_logic_compatible": False, "f5_reason": "native_basic_unavailable",
+            }
+        runtime = await backend_result(backend, "native_runtime_status")
+        installed = runtime["available"] is True
+        compatible = runtime["compatible"] is True
+        basic_reason = None
+        if not installed:
+            basic_reason = "multisim_not_found"
+        elif not compatible:
+            basic_reason = "native_build_incompatible"
+        f5_reason = "native_basic_unavailable" if basic_reason else await native_f5_reason(backend)
+        return {
+            "ok": basic_reason is None and f5_reason is None,
+            "basic_ok": basic_reason is None,
+            "basic_reason": basic_reason,
+            "f5_logic_compatible": f5_reason is None,
+            "f5_reason": f5_reason,
+            "multisim_installed": installed,
+            "matches_tested_build": compatible,
+            "tested_build": runtime["tested_version"],
+            "missing_modules": [item["module"] for item in runtime["checks"] if not item["present"]],
+            "different_modules": [
+                item["module"] for item in runtime["checks"] if item["present"] and not item["match"]
+            ],
+        }
+    except (KeyError, TypeError, RuntimeError, MCPError):
+        return {
+            "ok": False, "reason": "runtime_probe_failed",
+            "basic_ok": False, "basic_reason": "runtime_probe_failed",
+            "f5_logic_compatible": False, "f5_reason": "native_basic_unavailable",
+        }
+
+
 async def runtime_report(backend: Backend) -> dict:
+    if backend.name == "native":
+        return await native_report(backend)
     if not backend.available():
         return {"ok": False, "reason": "backend_unavailable"}
     try:
-        if backend.name == "native":
-            runtime = await backend_result(backend, "native_runtime_status")
-            f5_tools = all(backend.supports(name) for name in (
-                "native_logic_profile_status", "native_f5_logic_snapshot",
-                "native_set_logic_input", "native_read_logic_indicators",
-            ))
-            f5_compatible = f5_tools and (
-                await backend_result(backend, "native_logic_profile_status")
-            ).get("compatible") is True
-            return {
-                "ok": runtime["available"] and runtime["compatible"] and f5_compatible,
-                "multisim_installed": runtime["available"],
-                "matches_tested_build": runtime["compatible"],
-                "tested_build": runtime["tested_version"],
-                "f5_logic_compatible": f5_compatible,
-                "missing_modules": [
-                    item["module"] for item in runtime["checks"] if not item["present"]
-                ],
-                "different_modules": [
-                    item["module"] for item in runtime["checks"] if item["present"] and not item["match"]
-                ],
-            }
         runtime = await backend_result(backend, "runtime_status")
         registration = com_registered()
+        worker_ok = runtime["runtime_compatible"] is True
+        reason = None
+        if not worker_ok:
+            reason = "com_worker_incompatible"
+        elif not registration:
+            reason = "com_not_registered"
         return {
-            "ok": runtime["runtime_compatible"] and registration,
+            "ok": reason is None,
+            "reason": reason,
             "com_registered": registration,
             "worker_python_bits": runtime["python_bits"],
             "pywin32_available": runtime["pywin32_available"],
-            "worker_compatible": runtime["runtime_compatible"],
+            "worker_compatible": worker_ok,
             "synchronized_transient": backend.supports("run_transient_outputs"),
         }
     except (KeyError, TypeError, RuntimeError, MCPError):
@@ -144,7 +188,7 @@ async def diagnose(backends: dict[str, Backend]) -> dict:
         if version is not None and not re.fullmatch(r"v?\d+(?:\.\d+){1,3}", version):
             report["startup"]["version"] = None
     return {
-        "ok": gateway_ok and all(
+        "ok": gateway_ok and reports["com"]["runtime"].get("synchronized_transient", False) and all(
             report["python"]["ok"] and report["startup"]["available"] and report["runtime"]["ok"]
             for report in reports.values()
         ),
