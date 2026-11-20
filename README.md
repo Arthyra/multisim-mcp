@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-让 AI 助手通过本地 MCP 在 NI Multisim 中搭建和修改原理图、操控交互仿真，并用 Multisim 实测结果核对电路。
+一个非官方的 NI Multisim 本地 MCP 集成。让 AI 助手搭建和修改原理图、操控交互仿真，并用 Multisim 实测结果核对电路。
 
 [打开快速开始](QUICKSTART.md#简体中文)
 
@@ -14,15 +14,15 @@
 
 ## 兼容性与限制
 
-- 实机验证环境为 Windows 上的 32 位 NI Multisim `14.3.1500.0`。Native 固定为 `0.5.2`，COM 固定为 `1.3.1`。标准安装使用一个 64 位网关和两个 32 位 CPython 3.12 后端环境。其他 Multisim 构建未经验证，Native 会检查版本和关键模块。
+- 实机支持 64 位 Windows 上的 32 位 NI Multisim `14.3.3.0`，其中 `multisim.exe` 的文件版本为 `14.3.1500.0`。安装器检查文件版本，Native 运行前校验关键模块的指纹。补丁和发行版的验证范围见[兼容性矩阵](QUICKSTART.md#multisim-143-compatibility)。
 - 自动拨开关和读灯支持 `INTERACTIVE_DIGITAL_CONSTANT` 与 `PROBE_DIG_RED`。真值表工具按固定仿真时间采样，时序特性需单独验证。
 - COM 数值分析通过 Windows 自动化接口执行。保存用例的逻辑判定适用于输入保持固定的组合电路。Native 和 COM 各自在独立进程中运行，通过一个 stdio MCP 入口接入。
 
 ## 文档与上游
 
-项目处于预览阶段。[QUICKSTART.md](QUICKSTART.md#简体中文)包含安装、诊断与验证步骤。[AGENTS.md](AGENTS.md)说明如何检查电路和保护原工程。
+在 PowerShell 中运行 `./install.ps1`，再将生成的 stdio 配置添加到 MCP 客户端。[QUICKSTART.md](QUICKSTART.md#简体中文)包含安装条件、诊断和验证步骤。[AGENTS.md](AGENTS.md)说明如何检查电路和保护原工程。
 
-[Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) 提供原生编辑、检查和仿真。[Multisim MCP](https://github.com/yxy050208/multisim-mcp) 提供 COM 数值分析。本项目增加了交互仿真的逐行真值表判定，以及同一文件的工程交接。
+[Multisim Native MCP v0.5.2](https://github.com/y-wi/multisim-native-mcp/tree/v0.5.2) 提供原生编辑、检查和仿真。[Multisim MCP v1.3.1](https://github.com/yxy050208/multisim-mcp/tree/v1.3.1) 提供 COM 数值分析。本项目增加了交互仿真的逐行真值表判定，以及同一文件的工程交接。
 
 ## 许可证
 

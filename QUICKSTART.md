@@ -6,7 +6,7 @@
 
 ### 安装要求
 
-- Windows 上已安装并激活 32 位 NI Multisim `14.3.1500.0`。Native 会核对 Multisim 构建与关键模块，其他构建未经验证。
+- 64 位 Windows 上已安装并激活 32 位 NI Multisim。实机支持产品版本 `14.3.3.0`（Patch 3），可执行文件版本 `14.3.1500.0`，并且需要通过模块指纹校验。其他构建见[兼容性矩阵](#multisim-143-compatibility)。
 - 网关需要 64 位 Python 3.11 或以上，实测使用 3.13。两个后端需要 32 位 CPython 3.12。[Python 下载](https://www.python.org/downloads/windows/)
 - 安装时联网下载 [Native 0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2)、[COM 1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/)和锁定的依赖。
 
@@ -66,7 +66,7 @@
 
 ### Requirements
 
-- Windows with an activated 32-bit NI Multisim `14.3.1500.0` installation. Native checks the build and key modules. Other builds are unverified.
+- 64-bit Windows with an activated 32-bit NI Multisim installation. The tested product version is `14.3.3.0` (Patch 3), with executable file version `14.3.1500.0` and matching module fingerprints. See the [compatibility matrix](#multisim-143-compatibility) for other builds.
 - 64-bit Python 3.11 or later for the gateway (tested on 3.13) and 32-bit CPython 3.12 for both backends. [Python downloads](https://www.python.org/downloads/windows/)
 - Internet access to install the pinned [Native 0.5.2](https://github.com/y-wi/multisim-native-mcp/releases/tag/v0.5.2), [COM 1.3.1](https://pypi.org/project/multisim-mcp/1.3.1/), and runtime dependencies.
 
@@ -121,6 +121,20 @@ If several editors are open, use `native_attach` with the desired PID and docume
 [CI](.github/workflows/ci.yml) runs unit and MCP protocol tests without Multisim. The real regression uses temporary copies of user-supplied fixtures and requires an activated local installation. Close other Multisim editor windows and follow the [test commands and fixture guide](#tests).
 
 </details>
+
+## Multisim 14.3 compatibility
+
+产品版本、安装包版本和可执行文件版本分别记录。通过安装器的文件版本检查后，仍需用 `--doctor` 核对运行时。COM 取决于 32 位 Automation API 的注册和授权。 / Product, package, and executable versions are tracked separately. Run `--doctor` after the installer version check. COM requires the 32-bit Automation API to be registered and available under your license.
+
+| 环境 / Environment | 证据 / Evidence | 状态 / Status |
+| --- | --- | --- |
+| Patch 3，32 位 / x86，Education 安装包 / installer | 本项目实机验证，产品 / product `14.3.3.0`，NI 包 / package `14.3.3.49192`，`multisim.exe` 和 / and `MSInterface.dll` 文件 / file version `14.3.1500.0`。 | **已验证并支持 / Verified and supported**，Native、F5、COM、工程交接 / handoff |
+| Patch 3，32 位 / x86，Professional | 外部项目实测 COM，报告相同的产品及文件版本。 / An independent project tested COM and reported the same product and file versions. | **仅有外部 COM 证据 / External COM evidence only**，本项目未验收 / unverified here。[External test report](https://github.com/egg-pikaq/multisim-agent#当前本机验证状态) |
+| `14.3.0`、`14.3.1`、`14.3.2` | NI 有各自的安装包及补丁资料。可执行文件版本与模块指纹尚未在本项目核实。 / NI documents these packages and patches. Executable versions and module fingerprints were not confirmed here. | **未验证 / Unverified** |
+| Native 模块或 F5 指纹不匹配 / Native or F5 fingerprint mismatch | Native 校验失败时拒绝启动或附加编辑器。基础指纹通过且仅 F5 指纹不匹配时，仍可使用基础 Native 功能。 / A base mismatch blocks Native launch and attachment. An F5-only mismatch blocks switch and indicator automation. | **对应功能不兼容 / Affected capability unsupported** |
+| 64 位 Multisim 进程或只有 64 位 COM 注册 / 64-bit process or 64-bit-only COM registration | 当前 Native 配置针对 x86，COM 工作进程也是 32 位。 / The Native profile and COM worker target x86. | **不支持 / Unsupported** |
+
+NI 资料 / NI sources · [14.3 Readme](https://www.ni.com/pdf/manuals/circuit-design-suite-14.3.html) · [Download catalog](https://www.ni.com/fr/support/downloads/software-products/download.circuit-design-suite.html) · [Patch 1](https://www.ni.com/en/support/documentation/supplemental/25/circuit-design-suite-14-3-patch-1-details.html) · [Patch 2](https://www.ni.com/en/support/documentation/supplemental/25/circuit-design-suite-14-3-patch-2-details.html) · [Patch 3](https://www.ni.com/en/support/documentation/supplemental/26/circuit-design-suite-14-3-patch-3-details.html) · [Automation API](https://www.ni.com/docs/en-US/bundle/multisim/page/topics/automation-api.html)
 
 ## Shared examples
 

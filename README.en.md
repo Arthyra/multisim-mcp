@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-Give an AI assistant a local MCP connection to NI Multisim so it can edit schematics, control interactive simulation, and check circuits against measured results.
+An unofficial local MCP integration for NI Multisim. It lets an AI assistant edit schematics, control interactive simulation, and check circuits against measured results.
 
 [Open the quick-start guide](QUICKSTART.md#english)
 
@@ -14,15 +14,15 @@ Give an AI assistant a local MCP connection to NI Multisim so it can edit schema
 
 ## Compatibility and limits
 
-- The real Multisim test environment is 32-bit NI Multisim `14.3.1500.0` on Windows, with Native `0.5.2` and COM `1.3.1`. The standard install uses one 64-bit gateway and two 32-bit CPython 3.12 backend environments. Native checks the build and key modules. Other Multisim builds are unverified.
+- Real tests verified 32-bit NI Multisim `14.3.3.0` on 64-bit Windows, with `multisim.exe` file version `14.3.1500.0`. The installer checks the file version. Native verifies the fingerprints of key modules before use. See the [compatibility matrix](QUICKSTART.md#multisim-143-compatibility) for patch and edition coverage.
 - Automatic switch and indicator operations support `INTERACTIVE_DIGITAL_CONSTANT` and `PROBE_DIG_RED`. Truth-table rows are sampled after a fixed simulated interval. Verify timing behavior separately.
 - COM numerical analysis uses the Windows automation interface. Logic checks on saved COM cases are intended for combinational circuits with held inputs. Native and COM run in separate processes behind one stdio MCP connection.
 
 ## Documentation and upstream projects
 
-This project is in preview. [QUICKSTART.md](QUICKSTART.md#english) covers installation, diagnostics, and verification. [AGENTS.md](AGENTS.md) covers circuit checks and protecting the original design.
+Run `./install.ps1` in PowerShell, then add the generated stdio configuration to your MCP client. [QUICKSTART.md](QUICKSTART.md#english) covers requirements, diagnostics, and verification. [AGENTS.md](AGENTS.md) covers circuit checks and protecting the original design.
 
-[Multisim Native MCP](https://github.com/y-wi/multisim-native-mcp) provides native editing, checks, and simulation. [Multisim MCP](https://github.com/yxy050208/multisim-mcp) provides COM numerical analysis. This project adds row-by-row interactive truth-table checks and a same-file handoff between backends.
+[Multisim Native MCP v0.5.2](https://github.com/y-wi/multisim-native-mcp/tree/v0.5.2) provides native editing, checks, and simulation. [Multisim MCP v1.3.1](https://github.com/yxy050208/multisim-mcp/tree/v1.3.1) provides COM numerical analysis. This project adds row-by-row interactive truth-table checks and a same-file handoff.
 
 ## License
 

@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import re
@@ -42,16 +43,21 @@ def simserver_running():
     )
 
 
-async def ensure_simserver(session, zero_case):
-    if not simserver_running():
-        await call(session, "com_connect")
-        try:
-            await call(session, "com_open_circuit", path=str(zero_case))
-            await call(session, "com_run_transient", output_name=OUTPUTS[0])
-        finally:
-            await call(session, "com_disconnect")
-    if not simserver_running():
-        raise RuntimeError("The startup regression requires a running Multisim /SimServer")
+@asynccontextmanager
+async def running_simserver(session, zero_case):
+    if simserver_running():
+        yield
+        return
+    await call(session, "com_connect")
+    try:
+        await call(session, "com_open_circuit", path=str(zero_case))
+        await call(session, "com_run_transient", output_name=OUTPUTS[0])
+        if not simserver_running():
+            raise RuntimeError("The startup regression requires a running Multisim /SimServer")
+        # A clean COM disconnect can exit the server before Native starts.
+        yield
+    finally:
+        await call(session, "com_disconnect")
 
 
 def f5_row(bits, expected):
@@ -144,12 +150,13 @@ async def run(config, adder, cases_dir, analog=None):
             backends = await call(session, "gateway_status")
             assert all(backends[name]["reachable"] for name in ("native", "com")), backends
             runtime = await call(session, "native_runtime_status")
+            assert runtime["compatible"] and runtime["profile_enforced"], runtime
             if runtime["processes"]:
                 raise RuntimeError("Close schematic editor windows before the isolated startup test")
             if analog:
                 await check_native_analysis(session, analog, workspace)
-            await ensure_simserver(session, cases["000"])
-            opened = await call(session, "native_open_circuit", source_path=str(project))
+            async with running_simserver(session, cases["000"]):
+                opened = await call(session, "native_open_circuit", source_path=str(project))
             assert Path(opened["source_path"]) == project and not opened.get("attached_existing"), opened
             print("Opened a dedicated editor while /SimServer was running.", flush=True)
 
