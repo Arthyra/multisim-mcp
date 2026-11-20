@@ -1,0 +1,7 @@
+# Multisim circuit work
+
+- Follow the user's circuit structure, textbook method, and specified component models. Use stock Multisim parts and the simplest implementation that satisfies the requirements.
+- Use Native for schematic edits, layout inspection, interactive simulation, and supported numerical analyses. Reuse upstream edit batches and checks. Hand off to COM only for a required COM capability, cross-check, or explicit request.
+- Verify electrical connectivity with native pins, nets, or netlist evidence. Wires touching on screen are insufficient. Check layout and collisions separately, then verify behavior with relevant input cases or waveform samples.
+- Use a working copy when testing changes to a supplied circuit. Confirm the active document before saving or handing it off, and preserve the original unless the user requests in-place changes.
+- Keep fixtures, local configurations, and NI assets out of Git. Run the public unit suite with `python -m unittest discover -s tests -v`. Describe real Multisim checks separately from unit tests.
