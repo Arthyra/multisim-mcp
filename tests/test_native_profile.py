@@ -1,8 +1,8 @@
 from pathlib import Path
 from unittest import TestCase
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
-from multisim_unified_mcp.native_worker import EditorFrida
+from multisim_unified_mcp.native_worker import EditorFrida, render_bitmap
 
 
 class NativeProfileTest(TestCase):
@@ -31,4 +31,38 @@ class NativeProfileTest(TestCase):
                 with patch("multisim_unified_mcp.native_worker.multisim_processes", return_value={7: (None, image)}):
                     with self.assertRaisesRegex(RuntimeError, "configured Multisim executable"):
                         self.editor.attach(7)
-        self.frida.attach.assert_not_called()
+                self.frida.attach.assert_not_called()
+
+
+class BitmapExportTest(TestCase):
+    def setUp(self):
+        self.args = {
+            "path": "capture.bmp", "render_scale": 1.5, "show_frame": False, "show_grid": False,
+            "region": {"left": -20, "top": 40, "right": 200, "bottom": 120},
+        }
+        self.bounds = {"left": 40, "top": 50, "right": 100, "bottom": 80}
+        self.call = Mock(side_effect=[{"content_bounds": self.bounds}, {"ready": True}])
+
+    def test_crops_native_pixels_at_original_origin(self):
+        image = MagicMock()
+        bitmap = image.open.return_value.__enter__.return_value
+        bitmap.width, bitmap.height = 300, 180
+        with patch.dict("sys.modules", {"PIL": Mock(Image=image)}):
+            result = render_bitmap(self.call, "exportInteractiveImage", self.args)
+        operation, render_args = self.call.call_args.args
+        self.assertEqual(operation, "exportInteractiveImage")
+        self.assertEqual(render_args["region"], {"left": 0, "top": 0, "right": 200, "bottom": 120})
+        self.assertEqual(result["region"], self.args["region"])
+        self.assertEqual((result["width"], result["height"]), (330, 120))
+        bitmap.crop.assert_called_once_with((51, 66, 159, 129))
+        image.new.return_value.paste.assert_called_once_with(bitmap.crop.return_value, (81, 6))
+
+    def test_preserves_native_rendering_for_actual_off_sheet_content(self):
+        self.bounds["left"] = -10
+        render_bitmap(self.call, "exportImage", self.args)
+        self.call.assert_called_with("exportImage", self.args)
+
+    def test_waiting_for_live_frame_does_not_read_bitmap(self):
+        waiting = {"ready": False, "state": 1}
+        self.call.side_effect = [{"content_bounds": self.bounds}, waiting]
+        self.assertIs(render_bitmap(self.call, "exportInteractiveImage", self.args), waiting)

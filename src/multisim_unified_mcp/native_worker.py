@@ -45,6 +45,46 @@ def require_native_profile(runtime_status):
         raise RuntimeError("Native requires the verified Multisim 14.3.1500.0 module fingerprints")
 
 
+def render_bitmap(call, operation, args):
+    region = args["region"]
+    left, top, right, bottom = (region[key] for key in ("left", "top", "right", "bottom"))
+    if not (left or top) or right <= 0 or bottom <= 0:
+        return call(operation, args)
+    bounds = call("circuitState")["content_bounds"]
+    if bounds and ((left < 0 and bounds["left"] < 0) or (top < 0 and bounds["top"] < 0)):
+        # Retain the upstream renderer for real objects left of or above the sheet origin.
+        return call(operation, args)
+
+    # Moving the drawing root for a crop leaves interactive switch faces behind.
+    # Render at the original origin and crop the actual native pixels instead.
+    origin_region = {**region, "left": 0, "top": 0}
+    result = call(operation, {**args, "region": origin_region})
+    if operation == "exportInteractiveImage" and not result["ready"]:
+        return result
+
+    from PIL import Image
+
+    factor = args["render_scale"]
+    width, height = round((right - left) * factor), round((bottom - top) * factor)
+    offset_x, offset_y = round(left * factor), round(top * factor)
+    path = Path(args["path"])
+    with Image.open(path) as bitmap:
+        cropped = Image.new("RGB", (width, height), "white")
+        if bounds and not args["show_frame"] and not args["show_grid"]:
+            # The renderer may still draw coordinate rulers with the frame disabled.
+            # Preserve content, including its antialiased edge, on a clean canvas.
+            x0 = max(0, round((bounds["left"] - 6) * factor))
+            y0 = max(0, round((bounds["top"] - 6) * factor))
+            x1 = min(bitmap.width, round((bounds["right"] + 6) * factor))
+            y1 = min(bitmap.height, round((bounds["bottom"] + 6) * factor))
+            if x1 > x0 and y1 > y0:
+                cropped.paste(bitmap.crop((x0, y0, x1, y1)), (x0 - offset_x, y0 - offset_y))
+        elif bounds or args["show_frame"] or args["show_grid"]:
+            cropped.paste(bitmap, (-offset_x, -offset_y))
+    cropped.save(path, format="BMP")
+    return {**result, "region": region, "width": width, "height": height}
+
+
 class EditorFrida:
     def __init__(self, frida, install, runtime_status):
         self.frida = frida
@@ -81,6 +121,15 @@ def main() -> None:
     server.host.runtime_status = runtime_status
     # Both upstream attachment paths use this guard before loading private code.
     bridge.frida = service.frida = EditorFrida(frida, bridge.INSTALL, runtime_status)
+
+    upstream_call = server.host.call
+
+    def call_editor(operation, args=None):
+        if operation in ("exportImage", "exportInteractiveImage") and args and args.get("region"):
+            return render_bitmap(upstream_call, operation, args)
+        return upstream_call(operation, args)
+
+    server.host.call = call_editor
 
     upstream_open = bridge.NativeHost._open
 
