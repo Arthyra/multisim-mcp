@@ -26,8 +26,39 @@
 
 1. 用 `native_create_circuit` 创建空白工程。编辑现有工程时，先用 `native_open_copy` 将源文件复制到指定的未占用绝对路径。要把这份副本交给 COM，请关闭后通过 `native_open_circuit` 重新打开副本。
 2. 用 `native_search_library` 按型号搜索元件。以 `74LS153N` 为例，可选 `TTL / 74LS` 条目。将库条目的型号、组和系列传给 `native_place_component`，再按实际引脚名接线。
-3. 电气连接用 `native_get_circuit_state` 的引脚和网络以及 `native_check_netlist` 的网表和告警来核对，图面碰撞用 `native_check_layout` 单独检查。如检查结果提示句柄失效，后续编辑使用它返回的新句柄。用 `native_export_image` 导出电路图。
-4. 数字逻辑先做[交互仿真](#验证-f5-数字逻辑)。数值分析先停止交互仿真，再用 `native_run_analysis` 跑工作点或瞬态，或用 `native_run_ac_sweep` 做交流扫频。将返回的 `raw_path` 交给 `native_read_waveform` 读取采样点。交接 COM 见下文。
+3. 用 `native_get_circuit_state` 核对引脚和隐藏供电，用 `native_check_netlist` 检查电气连接。用 `native_check_layout` 检查图面，再保存工程。用 `native_export_image` 导出电路图。
+4. 数字逻辑先做[交互仿真](#验证-f5-数字逻辑)。数值分析先停止交互仿真，再用 `native_run_analysis` 跑工作点或瞬态，或用 `native_run_ac_sweep` 做交流扫频。将返回的 `raw_path` 交给 `native_read_waveform` 读取采样点。
+
+### 原理图排版与布线
+
+整理整张原理图时，在工程副本上调用 `native_plan_sheet_layout`。用 `blocks` 给输入、逻辑、输出和反馈等功能块各列一组器件编号，如 `{"inputs":["K1","K2"],"logic":["U1"],"outputs":["Y1","Y2"]}`。工具比较成组移动、端子对齐和原位重布线，可用 `fixed_refs` 锁定摆位，或用 `canvas: [宽, 高]` 扩大图纸。指定 `supply_load_pins` 时，工具还会尝试把所选负载接到已有的同网主线，单独报告供电支路的变化。推荐方案返回 `plan_id`，可用 `native_apply_layout_plan` 一次应用并导出前后图。没有推荐方案时，工具会列出候选的指标和冲突，供调整功能块划分后再试。
+
+可省略 `blocks`，让整图工具按原生网络和器件所在的行列推断成组器件。返回值会列出推断分组，必要时可显式指定。`native_plan_sheet_layout` 会把竞争同一片区域的导线一起试排，也会试着收紧没有器件、标签或导线拐点的走廊，保留穿过该走廊的导线顺序。
+
+<details>
+<summary>局部摆位、接线与图面检查工具</summary>
+
+摆件时先对齐常用连线的端子，再走直线或短折线。用 `native_simplify_branches` 预览可合并的共用主线，用 `native_simplify_wiring` 预览可减少的拐弯。两者均可用 `apply: true` 应用。`placement_refs` 可让后者估算选定元件的端子对齐收益。用 `native_upright_labels` 修正已有的镜像标签。
+
+对绕行较远的线，指定 `wire_ids` 和 `include_obstacle_routes: true` 可在整理时比较上游避障候选。也可用 `native_plan_wire_route` 单独预览。遇到因摆位造成的绕线，先按引脚位置调整相关元件，再按新端子位置重走受影响的线。`native_check_layout` 的 `label_move_hints` 提供邻近空位建议，用 `native_move_component_label` 应用选中的建议。
+
+走线整理依次比较异网重叠、点状交会、拐弯和线长。用 `native_plan_component_group` 预览选定元件的等距行列。应用元件移动并整理受影响的线后，再调用一次预览统一的位号和参数标注位置。
+
+`native_check_layout` 会报告贴着符号外框、穿过其他引脚引线或间隙不足的导线，类型为 `wire_symbol_clearance`。`native_simplify_wiring` 优先避让这些区域，允许正常向外接出的引脚引线。
+
+如果反馈、供电或时钟线互相占用通道，可用 `native_plan_local_routing` 一起比较。传入 `wire_ids` 或 `component_refs` 选择 2 到 16 根线。工具保留接点和引脚，比较局部走线方案，`apply: true` 应用排名第一的方案并核对端子归属。
+
+如果固定引脚后仍有绕线，用 `native_plan_local_placement` 同时比较摆位和走线。传入 `movable_refs`，可加 `movable_junction_ids` 指定允许移动的接点。结果中的 `fixed` 是固定摆位时的最佳走线，`candidates` 给出可移动方案的局部和整页指标。
+
+用 `native_preview_ordered_wiring` 批量规划相向引脚，例如 `pairs: [[['K1','2'],['U1','1D']],[['K2','2'],['U1','2D']]]`。`reserved_columns` 为其他用途预留转弯列，`supply_load_pins` 可同时把负载挂到已有供电主线。两种预览都返回 `plan_id`，用 `native_apply_layout_plan` 一次应用。在同一原理图上应用，工具会核对端子归属和图面，检查失败时撤销。可传入绝对 `image_prefix` 与可选 `region` 导出同尺度前后图。
+
+同一供电支路的接点和导线都需要重新摆放时，用 `native_plan_parallel_trunk`。传入 `load_pins`，例如 `{"R1": "1", "R2": "1"}`。工具从原生连接识别同网、单入口的分支。设置 `reuse_existing: true` 可搜索已存在的同网主线，把负载直接挂到主线上。用 `apply: true` 应用，工具会核对原生端子归属。
+
+用 `native_compare_placements` 比较相互连接元件的几套摆位。`candidates` 可以传入 `{"靠近": {"U4": [0, -81]}, "分开": {"U4": [18, 0]}}`，也可以把当前接点 ID 和偏移量加入方案。工具只读，会比较引脚进线方向、元件间距和走线，并报告无法重走的导线。选定方案后，在 `native_edit_batch` 中用 `move_component_preserving_wiring` 和 `move_junction` 移动，再按实际端点位置应用 `route_wire`。
+
+如果两排相对的引脚之间有多路并行分支，可以只传 `component_refs`，让 MCP 自动提出摆位。选择两级芯片、支路元件及希望随动的串联元件。`detected_lanes` 列出分支，`module_delta` 报告交会和拐弯等指标的变化，`label_moves` 提供建议标注位置。应用后可用相同的 `region` 和 `dpi` 导出前后图。
+
+</details>
 
 ### 验证 F5 数字逻辑
 
@@ -86,8 +117,39 @@ In `gateway_status`, `available` means the backend session is still connected. `
 
 1. Use `native_create_circuit` for a blank project. Before editing an existing project, use `native_open_copy` with an unused absolute output path. To hand that copy to COM, close it and reopen the copy with `native_open_circuit` first.
 2. Find exact parts with `native_search_library`. For example, `74LS153N` has a `TTL / 74LS` entry. Pass the name, group, and family to `native_place_component`, then wire the actual pins.
-3. Inspect pins and nets with `native_get_circuit_state`, review the native netlist and warnings with `native_check_netlist`, and inspect layout separately with `native_check_layout`. If a check invalidates handles, use the returned replacements for later edits. Use `native_export_image` to export the schematic.
-4. Check digital logic using [interactive simulation](#verify-live-f5-logic). For numerical analysis, stop interactive simulation and use `native_run_analysis` for operating point or transient analysis, or `native_run_ac_sweep` for AC. Pass the returned `raw_path` to `native_read_waveform` to read samples. See the COM handoff instructions below when needed.
+3. Inspect pins and hidden supplies with `native_get_circuit_state`. Use `native_check_netlist` to verify connectivity and `native_check_layout` to inspect the drawing before saving. Use `native_export_image` to export a schematic image.
+4. Check digital logic using [interactive simulation](#verify-live-f5-logic). For numerical analysis, stop interactive simulation, then use `native_run_analysis` for operating point or transient analysis, or `native_run_ac_sweep` for AC. Pass the returned `raw_path` to `native_read_waveform` to read samples.
+
+### Schematic layout and routing
+
+To lay out an entire schematic, call `native_plan_sheet_layout` on a working copy. Use `blocks` to name functional groups of part references, for example `{"inputs":["K1","K2"],"logic":["U1"],"outputs":["Y1","Y2"]}`. The tool compares block moves, terminal alignment, and rerouting in place. Use `fixed_refs` to lock parts and `canvas: [width, height]` to enlarge the sheet. With `supply_load_pins`, the tool also tries to connect the selected loads to an existing rail on their net and reports that branch's changes separately. Apply the recommended `plan_id` with `native_apply_layout_plan` and export matched before/after images. If no candidate improves the current layout, use the candidate metrics and conflicts to revise the block grouping.
+
+You can omit `blocks` to infer groups from native connectivity and aligned component rows or columns. The preview reports those groups so you can override them. `native_plan_sheet_layout` tries alternative routes jointly for wires competing in the same area. It also tries narrowing corridors free of parts, labels, and turns while preserving the order of the wires through them.
+
+<details>
+<summary>Local placement, wiring, and inspection tools</summary>
+
+Align frequently connected pins before routing. Preview shared trunks with `native_simplify_branches` and bend reductions with `native_simplify_wiring`. Set `apply: true` to apply either set of changes. The `placement_refs` option estimates alignment benefits for selected parts. Use `native_upright_labels` to repair existing mirrored labels.
+
+For long detours, pass `wire_ids` and `include_obstacle_routes: true` to compare upstream obstacle-routing candidates. Use `native_plan_wire_route` for a standalone preview. When placement creates a detour, move the relevant components first, then reroute from the updated pin coordinates. `native_check_layout` returns nearby clear label positions in `label_move_hints`. Apply selected suggestions with `native_move_component_label`.
+
+Route cleanup prioritizes overlap between distinct nets, point contacts, bends and length, in that order. Use `native_plan_component_group` to preview an evenly spaced row or column. Apply the part moves and tidy the affected wires, then call the tool again for consistent reference and value label positions.
+
+`native_check_layout` reports routes that touch a symbol outline, cross another pin lead or leave too little clearance as `wire_symbol_clearance`. `native_simplify_wiring` avoids these areas and allows a normal outward lead at the connected pin.
+
+Use `native_plan_local_routing` when feedback, supply or clock wires compete for the same space. Select 2 to 16 wires with `wire_ids` or `component_refs`. The tool compares local routing combinations with fixed pins and junctions. Use `apply: true` to apply the top result and check terminal groups.
+
+Use `native_plan_local_placement` to compare placement and routing together when fixed pins force detours. Pass `movable_refs` and optionally `movable_junction_ids`. The result compares the best fixed routing with movable candidates and reports both local and whole-sheet metrics.
+
+Use `native_preview_ordered_wiring` for facing pin pairs, for example `pairs: [[['K1','2'],['U1','1D']],[['K2','2'],['U1','2D']]]`. Reserve turning columns with `reserved_columns`. Use `supply_load_pins` to attach loads to an existing supply trunk in the same plan. Both previews return a `plan_id` for `native_apply_layout_plan`, which verifies terminal groups and layout in the same document and undoes failed edits. An absolute `image_prefix` and optional `region` create same-scale before/after images.
+
+Use `native_plan_parallel_trunk` when the junctions and wires of a parallel supply branch need to move together. Pass `load_pins`, for example `{"R1": "1", "R2": "1"}`. The tool follows native connectivity to find a same-net, single-feed branch. Set `reuse_existing: true` to look for an existing trunk and attach the loads directly to it. Use `apply: true` to apply the plan and verify native terminal groups.
+
+Use `native_compare_placements` to compare layouts of connected parts. Pass `candidates` such as `{"closer": {"U4": [0, -81]}, "spread": {"U4": [18, 0]}}`. Include current junction IDs to move them with the parts. The read-only tool compares pin approach, symbol clearance and routes, and reports unroutable wires. In `native_edit_batch`, use `move_component_preserving_wiring` and `move_junction` for the chosen moves. Check actual endpoints before applying `route_wire`.
+
+For repeated branches between two facing rows of pins, pass `component_refs` alone to generate placements. Select both stages, the tap components and any series components that should move with them. `detected_lanes` lists the branches, `module_delta` compares crossings and bends, and `label_moves` suggests label positions. Export before and after images with the same `region` and `dpi`.
+
+</details>
 
 ### Verify live F5 logic
 

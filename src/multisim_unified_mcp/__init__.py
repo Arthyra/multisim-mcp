@@ -34,6 +34,7 @@ TOOLS = {
         "native_search_library",
         "native_place_component",
         "native_move_component",
+        "native_move_component_label",
         "native_connect_endpoints",
         "native_label_wire",
         "native_add_text",
@@ -51,6 +52,19 @@ TOOLS = {
         "native_get_parameters",
         "native_check_netlist",
         "native_check_layout",
+        "native_plan_wire_route",
+        "native_auto_route_wire",
+        "native_simplify_wiring",
+        "native_plan_local_routing",
+        "native_plan_local_placement",
+        "native_plan_sheet_layout",
+        "native_preview_ordered_wiring",
+        "native_apply_layout_plan",
+        "native_plan_component_group",
+        "native_compare_placements",
+        "native_simplify_branches",
+        "native_plan_parallel_trunk",
+        "native_upright_labels",
         "native_export_image",
         "native_run_analysis",
         "native_run_ac_sweep",
@@ -194,9 +208,16 @@ async def serve(backends: dict[str, Backend]) -> None:
                 "Follow the requested circuit, textbook method and part models. Use a working copy "
                 "before editing an original. Use Native for editing and supported simulations. "
                 "Verify electrical connectivity with native nets or a netlist and inspect layout separately. "
-                "Keep supply leads short. Use native junctions at the visible branch points and "
-                "native_edit_batch with route_wire to straighten existing wires. Inspect the exported "
-                "drawing for shared segments that split away from their junction dot. "
+                "Before wiring, align frequently connected pins, keep switches left and outputs right, "
+                "and place supply terminals near the pins they drive. Prefer straight runs or one turn "
+                "where pin exits allow it. Use native junctions at the visible branch points. Preview "
+                "native_simplify_branches for shared trunks, native_plan_local_routing for nearby wire groups, "
+                "native_plan_sheet_layout for whole-sheet functional blocks, native_plan_local_placement for small groups, and "
+                "native_preview_ordered_wiring for matched pin groups. Apply reviewed plans with native_apply_layout_plan. Use "
+                "native_plan_parallel_trunk to reorganize parallel supply taps, and native_plan_component_group "
+                "to align repeated parts and labels. Use native_compare_placements "
+                "to compare alternative layouts of connected parts before moving them. "
+                "Inspect the exported drawing after applying changes. "
                 "Use native_verify_f5_cases to compare real indicators with the expected truth table. "
                 "Use native_run_analysis or native_run_ac_sweep and native_read_waveform for numerical analysis. "
                 "Use handoff_to_com when COM is required or for a cross-check. It stops, saves and releases "
