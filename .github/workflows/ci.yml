@@ -30,3 +30,14 @@ jobs:
 
       - name: Run unit and MCP protocol tests
         run: python -m unittest discover -s tests -v
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Run DeepSeek Harness adapter tests
+        working-directory: integrations/deepseek-harness
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci --ignore-scripts
+          npm test

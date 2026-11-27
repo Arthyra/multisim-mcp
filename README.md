@@ -24,6 +24,8 @@
 
 在 PowerShell 中运行 `./install.ps1`，再将生成的 stdio 配置添加到 MCP 客户端。[QUICKSTART.md](QUICKSTART.md#简体中文)包含安装条件、诊断和验证步骤。[AGENTS.md](AGENTS.md)说明如何检查电路和保护原工程。
 
+DeepSeek Harness 可通过仓库内的适配插件连接本机网关。安装和设置见 [Harness 适配插件](integrations/deepseek-harness/README.md)。
+
 [Multisim Native MCP v0.5.2](https://github.com/y-wi/multisim-native-mcp/tree/v0.5.2) 提供原生编辑、检查和仿真。[Multisim MCP v1.3.1](https://github.com/yxy050208/multisim-mcp/tree/v1.3.1) 提供 COM 数值分析。本项目在两者之上增加整图排版与布线、交互仿真的逐行真值表判定，以及同一文件的工程交接。
 
 ## 许可证

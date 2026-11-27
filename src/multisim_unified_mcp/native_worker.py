@@ -661,6 +661,7 @@ if __name__ == "__main__":
     import sys
 
     # The gateway starts this script in the isolated Native Python environment.
-    # Resolve the sibling package from the same checkout or installed release.
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    # Resolve our sibling modules without shadowing the Native environment's
+    # dependencies with the gateway's (potentially 64-bit) site-packages.
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
     main()

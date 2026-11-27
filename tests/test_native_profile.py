@@ -1,10 +1,37 @@
+from os import environ
 from pathlib import Path
+from shutil import copyfile
+from subprocess import run
+import sys
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import MagicMock, Mock, patch
 
+from multisim_unified_mcp import native_worker
 from multisim_unified_mcp.native_worker import (
     EditorFrida, distant_power_labels, missing_global_supplies, render_bitmap, reuse_editor_views,
 )
+
+
+class NativeWorkerStartupTest(TestCase):
+    def test_gateway_site_packages_do_not_override_native_dependencies(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native_site = root / "native-site"
+            gateway_site = root / "gateway-site"
+            worker = gateway_site / "multisim_unified_mcp" / "native_worker.py"
+            worker.parent.mkdir(parents=True)
+            native_site.mkdir()
+            copyfile(native_worker.__file__, worker)
+            (native_site / "frida.py").write_text("raise SystemExit(23)", encoding="utf-8")
+            (gateway_site / "frida.py").write_text("raise SystemExit(24)", encoding="utf-8")
+
+            process = run(
+                [sys.executable, str(worker)], cwd=root,
+                env={**environ, "PYTHONPATH": str(native_site)},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(process.returncode, 23, process.stderr)
 
 
 class NativeProfileTest(TestCase):

@@ -24,6 +24,8 @@ An unofficial local MCP integration for NI Multisim. It lets an AI assistant edi
 
 Run `./install.ps1` in PowerShell, then add the generated stdio configuration to your MCP client. [QUICKSTART.md](QUICKSTART.md#english) covers requirements, diagnostics, and verification. [AGENTS.md](AGENTS.md) covers circuit checks and protecting the original design.
 
+DeepSeek Harness can connect to the local gateway through the adapter in this repository. See the [Harness adapter setup](integrations/deepseek-harness/README.md#english).
+
 [Multisim Native MCP v0.5.2](https://github.com/y-wi/multisim-native-mcp/tree/v0.5.2) provides native editing, checks, and simulation. [Multisim MCP v1.3.1](https://github.com/yxy050208/multisim-mcp/tree/v1.3.1) provides COM numerical analysis. This project adds whole-sheet layout and routing, row-by-row interactive truth-table checks, and a same-file handoff.
 
 ## License

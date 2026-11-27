@@ -1,4 +1,5 @@
 /.venv/
+/integrations/deepseek-harness/node_modules/
 /.install/
 /build/
 /dist/
