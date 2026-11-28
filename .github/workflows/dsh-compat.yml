@@ -1,0 +1,246 @@
+name: DeepSeek Harness compatibility
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dsh_version:
+        description: 'Exact Harness version to test (defaults to npm latest)'
+        type: string
+      repair:
+        description: 'Request an automatic patch if the candidate fails'
+        type: boolean
+        default: false
+      probe_ecs:
+        description: 'Check the restricted connection to the repair worker'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-compat-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSH_BASELINE: 0.2.2-rc.5
+
+jobs:
+  compatibility:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      candidate_failed: ${{ steps.candidate.outcome == 'failure' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Resolve Harness version
+        id: release
+        env:
+          REQUESTED_VERSION: ${{ inputs.dsh_version }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = $env:REQUESTED_VERSION
+          if (-not $version) {
+            $version = npm view @deepseek-ai/dsh dist-tags.latest --registry=https://registry.npmjs.org
+          }
+          if ($version -cnotmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'Expected a single exact Harness version.'
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "Testing Harness $version (known baseline: $env:DSH_BASELINE)." >> $env:GITHUB_STEP_SUMMARY
+          if ($version -eq $env:DSH_BASELINE -and $env:GITHUB_EVENT_NAME -eq 'schedule') {
+            'No new Harness release.' >> $env:GITHUB_STEP_SUMMARY
+            'unchanged=true' >> $env:GITHUB_OUTPUT
+          }
+
+      - uses: actions/setup-python@v6
+        if: steps.release.outputs.unchanged != 'true'
+        with:
+          python-version: '3.13'
+          architecture: x64
+
+      - name: Build smoke test installation
+        if: steps.release.outputs.unchanged != 'true'
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'dsh-compat'
+          ./.github/scripts/dsh-compat.ps1 -Root $root -PrepareGateway
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "DSH_COMPAT_ROOT=$root" >> $env:GITHUB_ENV
+
+      - name: Install Harness packages
+        if: steps.release.outputs.unchanged != 'true'
+        env:
+          DSH_TARGET: ${{ steps.release.outputs.version }}
+        run: |
+          foreach ($version in (@($env:DSH_BASELINE, $env:DSH_TARGET) | Select-Object -Unique)) {
+            ./.github/scripts/dsh-compat.ps1 -Root $env:DSH_COMPAT_ROOT -Version $version -InstallHarness
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
+      - name: Test known Harness baseline
+        if: steps.release.outputs.unchanged != 'true'
+        run: ./.github/scripts/dsh-compat.ps1 -Root $env:DSH_COMPAT_ROOT -Version $env:DSH_BASELINE
+
+      - name: Test candidate Harness
+        id: candidate
+        if: steps.release.outputs.version != env.DSH_BASELINE
+        env:
+          DSH_TARGET: ${{ steps.release.outputs.version }}
+        run: |
+          pwsh -NoProfile -File .github/scripts/dsh-compat.ps1 -Root $env:DSH_COMPAT_ROOT -Version $env:DSH_TARGET `
+            2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/candidate.log"
+          exit $LASTEXITCODE
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.candidate.outcome == 'failure'
+        with:
+          name: dsh-candidate-log
+          path: ${{ runner.temp }}/candidate.log
+          retention-days: 7
+
+  generate-fix:
+    needs: compatibility
+    if: >-
+      always() && github.ref == 'refs/heads/main' && vars.DSH_ECS_REPAIR == 'enabled' &&
+      (inputs.probe_ecs || (needs.compatibility.outputs.candidate_failed == 'true' &&
+      (github.event_name == 'schedule' || inputs.repair)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      has_patch: ${{ steps.agent.outputs.has_patch }}
+    steps:
+      - name: Check for an existing compatibility PR
+        id: existing
+        if: ${{ !inputs.probe_ecs }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSH_TARGET: ${{ needs.compatibility.outputs.version }}
+        run: |
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state all --head "dsh-compat/$DSH_TARGET" --json number --jq 'length')
+          echo "count=$existing" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        if: steps.existing.outputs.count == '0'
+        with:
+          name: dsh-candidate-log
+          path: ${{ runner.temp }}/dsh-failure
+
+      - name: Ask DSH on the ECS for a patch
+        id: agent
+        if: inputs.probe_ecs || steps.existing.outputs.count == '0'
+        env:
+          DSH_TARGET: ${{ needs.compatibility.outputs.version }}
+          SSH_DESTINATION: ${{ secrets.DSH_REPAIR_SSH_DESTINATION }}
+          SSH_PORT: ${{ secrets.DSH_REPAIR_SSH_PORT }}
+          SSH_PRIVATE_KEY: ${{ secrets.DSH_REPAIR_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DSH_REPAIR_KNOWN_HOSTS }}
+          PROBE_ECS: ${{ inputs.probe_ecs }}
+        run: |
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > "$ssh_dir/known_hosts"
+          connect=('-T' '-o' 'BatchMode=yes' '-o' 'IdentitiesOnly=yes' '-o' 'ConnectTimeout=10'
+              '-o' 'StrictHostKeyChecking=yes' '-o' "UserKnownHostsFile=$ssh_dir/known_hosts"
+              '-i' "$ssh_dir/key" '-p' "${SSH_PORT:-22}")
+          if [[ "$PROBE_ECS" == true ]]; then
+            printf 'probe\n' | ssh "${connect[@]}" -- "$SSH_DESTINATION"
+            exit 0
+          fi
+          {
+            printf '%s\n' "$DSH_TARGET" "$GITHUB_SHA" "$GITHUB_RUN_ID"
+            tail -c 16000 "$RUNNER_TEMP/dsh-failure/candidate.log"
+          } | ssh "${connect[@]}" -- "$SSH_DESTINATION" > "$RUNNER_TEMP/fix.patch"
+          test -s "$RUNNER_TEMP/fix.patch"
+          echo 'has_patch=true' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.agent.outputs.has_patch == 'true'
+        with:
+          name: dsh-repair-patch
+          path: ${{ runner.temp }}/fix.patch
+          retention-days: 7
+
+  verify-fix:
+    needs: [compatibility, generate-fix]
+    if: >-
+      always() && needs.generate-fix.result == 'success' &&
+      needs.generate-fix.outputs.has_patch == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsh-repair-patch
+          path: ${{ runner.temp }}/dsh-repair
+      - name: Apply the candidate patch
+        run: git apply --check "$env:RUNNER_TEMP/dsh-repair/fix.patch"; if ($LASTEXITCODE) { exit $LASTEXITCODE }; git apply "$env:RUNNER_TEMP/dsh-repair/fix.patch"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - name: Re-test both Harness versions
+        env:
+          DSH_TARGET: ${{ needs.compatibility.outputs.version }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'dsh-compat'
+          ./.github/scripts/dsh-compat.ps1 -Root $root -PrepareGateway
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($version in @($env:DSH_BASELINE, $env:DSH_TARGET)) {
+            ./.github/scripts/dsh-compat.ps1 -Root $root -Version $version -InstallHarness
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            ./.github/scripts/dsh-compat.ps1 -Root $root -Version $version
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
+  open-pr:
+    needs: [compatibility, verify-fix]
+    if: always() && needs.verify-fix.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsh-repair-patch
+          path: ${{ runner.temp }}/dsh-repair
+      - name: Open the verified patch as a draft PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DSH_TARGET: ${{ needs.compatibility.outputs.version }}
+        run: |
+          git apply --index "$RUNNER_TEMP/dsh-repair/fix.patch"
+          branch="dsh-compat/$DSH_TARGET"
+          git switch -c "$branch"
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "Fix Harness adapter compatibility with $DSH_TARGET"
+          gh auth setup-git
+          git push origin HEAD
+          gh pr create --draft --repo "$GITHUB_REPOSITORY" --head "$branch" --base main \
+            --title "Fix Harness adapter compatibility with $DSH_TARGET" \
+            --body "Automatic patch. Windows smoke tests passed with $DSH_BASELINE and $DSH_TARGET. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
