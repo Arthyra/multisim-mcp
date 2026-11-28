@@ -98,6 +98,18 @@ WORKFLOW_TOOLS = {
     VERIFY_LOGIC_TOOL.name: {"com": ("open_circuit",)},
 }
 
+PLACEMENT_GUIDANCE = (
+    "Plan placement from the actual pin connections. Group parts by signal path and reserve room for "
+    "shared trunks with short branches. Move parts when their positions cause detours or crowd labels. "
+    "Inspect the native drawing before accepting an automatic plan."
+)
+VERIFICATION_GUIDANCE = (
+    "For layout-only iterations, inspect the drawing and check affected pin-to-net assignments. "
+    "Reuse prior simulation results when component parameters and pin-to-net assignments match the "
+    "verified circuit. For a new circuit, an electrical change, or a request to retest, run the relevant "
+    "simulation once from the final saved file."
+)
+
 
 STATUS_TOOL = types.Tool(
     name="gateway_status",
@@ -127,7 +139,10 @@ def tool_result(result, *, is_error=False) -> types.CallToolResult:
 
 async def serve(backends: dict[str, Backend]) -> None:
     async with start_backends(backends, sys.stderr):
-        builtins = {tool.name: tool for tool in (STATUS_TOOL, HANDOFF_TOOL, VERIFY_LOGIC_TOOL, VERIFY_F5_TOOL)}
+        f5_tool = VERIFY_F5_TOOL.model_copy(update={
+            "description": f"{VERIFY_F5_TOOL.description} {VERIFICATION_GUIDANCE}",
+        })
+        builtins = {tool.name: tool for tool in (STATUS_TOOL, HANDOFF_TOOL, VERIFY_LOGIC_TOOL, f5_tool)}
         routes = {
             name if role == "native" else f"com_{name}": (backends[role], name)
             for role, names in TOOLS.items() for name in names
@@ -137,6 +152,13 @@ async def serve(backends: dict[str, Backend]) -> None:
             for public, (backend, upstream) in routes.items()
             if upstream in backend.tools and backend.session is not None
         }
+        # Clients that use only tools/list also receive the workflow guidance.
+        for name in ("native_edit_batch", "native_plan_sheet_layout"):
+            if name in tools:
+                tool = tools[name]
+                tools[name] = tool.model_copy(update={
+                    "description": f"{tool.description or ''} {PLACEMENT_GUIDANCE}".strip(),
+                })
 
         call_lock = asyncio.Lock()
 
@@ -208,8 +230,8 @@ async def serve(backends: dict[str, Backend]) -> None:
                 "Follow the requested circuit, textbook method and part models. Use a working copy "
                 "before editing an original. Use Native for editing and supported simulations. "
                 "Verify electrical connectivity with native nets or a netlist and inspect layout separately. "
-                "Before wiring, align frequently connected pins, keep switches left and outputs right, "
-                "and place supply terminals near the pins they drive. Prefer straight runs or one turn "
+                f"{PLACEMENT_GUIDANCE} "
+                "Align frequently connected pins and place supply terminals near the pins they drive. Prefer straight runs or one turn "
                 "where pin exits allow it. Use native junctions at the visible branch points. Preview "
                 "native_simplify_branches for shared trunks, native_plan_local_routing for nearby wire groups, "
                 "native_plan_sheet_layout for whole-sheet functional blocks, native_plan_local_placement for small groups, and "
@@ -218,7 +240,7 @@ async def serve(backends: dict[str, Backend]) -> None:
                 "to align repeated parts and labels. Use native_compare_placements "
                 "to compare alternative layouts of connected parts before moving them. "
                 "Inspect the exported drawing after applying changes. "
-                "Use native_verify_f5_cases to compare real indicators with the expected truth table. "
+                f"{VERIFICATION_GUIDANCE} Use native_verify_f5_cases to compare real indicators with the expected truth table. "
                 "Use native_run_analysis or native_run_ac_sweep and native_read_waveform for numerical analysis. "
                 "Use handoff_to_com when COM is required or for a cross-check. It stops, saves and releases "
                 "the active file and opens it in COM. Disconnect COM before returning to Native editing."

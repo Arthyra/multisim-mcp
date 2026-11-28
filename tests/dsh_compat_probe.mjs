@@ -14,6 +14,8 @@ export async function apply(ctx) {
     while (!ctx.tools.get(statusTool) && Date.now() < deadline) await setTimeout(200)
     const tool = ctx.tools.get(statusTool)
     assert.ok(tool, 'Harness did not discover gateway_status')
+    const f5 = ctx.tools.definitions().find(definition => definition.name === `${prefix}native_verify_f5_cases`)
+    assert.match(f5?.description ?? '', /Reuse prior simulation results/)
     const response = await tool.execute({}, { signal: AbortSignal.timeout(10_000) })
     assert.ok(!response.isError, 'Harness received an MCP tool error')
     const status = response.structuredContent ?? JSON.parse(response.content[0].text)
